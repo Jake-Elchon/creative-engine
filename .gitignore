@@ -1,1 +1,5 @@
-﻿documentation/**/*.docx
+documentation/*
+.vscode/
+*__pycache__
+/.env
+/.tools/
