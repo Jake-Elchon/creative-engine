@@ -9,7 +9,6 @@ export interface ArtistSummary {
   displayName: string;
   bio: string | null;
   storefrontUrl: string;
-  profileImageUrl?: string | null;
 }
 
 export interface DiscoveryArtistsResponse {
@@ -73,6 +72,16 @@ export interface CreatedProduct {
   videoUrl: string | null;
   videoPreviewUrl?: string | null;
   audioUrl: string | null;
+}
+
+export interface OwnedProduct extends CreatedProduct {
+  prices: ProductPrice[];
+}
+
+export interface StudioInventory {
+  storefronts: ArtistSummary[];
+  products: OwnedProduct[];
+  nextCursor: string | null;
 }
 
 export interface PriceReplacement {

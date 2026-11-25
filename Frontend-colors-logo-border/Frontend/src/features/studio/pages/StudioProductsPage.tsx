@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useLanguage } from '@/app/providers/LanguageProvider';
 import { Button } from '@/components/ui/Button/Button';
 import { Input } from '@/components/ui/Input/Input';
@@ -13,7 +13,7 @@ import { formatMoney } from '@/utils/currency';
 import { isValidUuid, MAX_PRODUCT_DESC_LENGTH } from '@/utils/validation';
 import { StudioPageIntro } from '../components/StudioPageIntro';
 import { AUDIO_ACCEPT, VIDEO_ACCEPT, buildPriceReplacement, isValidProductDraft } from '../validation';
-import { studioError, useStudioWorkspace } from '../workspace';
+import { studioError, useOwnedProduct, useStudioWorkspace } from '../workspace';
 
 function CreatedProductMedia({ product }: { product: CreatedProduct }) {
   const { t } = useLanguage();
@@ -69,16 +69,21 @@ function CreatedProductMedia({ product }: { product: CreatedProduct }) {
 export function StudioProductsPage() {
   const { locale, t } = useLanguage();
   const copy = t.studioForms;
-  const { storefront, isRestoringStorefront, products, recordProduct } = useStudioWorkspace();
+  const [searchParams] = useSearchParams();
+  const { storefront, storefronts, setStorefront, inventory, inventoryLoading, inventoryError,
+    loadInventory, recordProduct, recordPrices } = useStudioWorkspace();
+  const products = inventory?.products ?? [];
   const [typeCode, setTypeCode] = useState<ProductTypeCode>('release');
   const [description, setDescription] = useState('');
   const [videoFile, setVideoFile] = useState<File>();
   const [videoPreviewFile, setVideoPreviewFile] = useState<File>();
   const [audioFile, setAudioFile] = useState<File>();
-  const [productId, setProductId] = useState(products.find((p) => p.storefrontId === storefront?.storefrontId)?.productId ?? '');
-  const [xaf, setXaf] = useState('');
-  const [currency, setCurrency] = useState<'' | 'EUR' | 'USD'>('');
-  const [cents, setCents] = useState('');
+  const [manualId, setManualId] = useState<string>();
+  const productId = manualId ?? searchParams.get('product')
+    ?? products.find((product) => product.storefrontId === storefront?.storefrontId)?.productId ?? '';
+  const id = productId.trim();
+  const selection = useOwnedProduct(id, inventory);
+  const [priceDraft, setPriceDraft] = useState<{ id: string; xaf: string; currency: '' | 'EUR' | 'USD'; cents: string }>();
   const [priceSets, setPriceSets] = useState<Record<string, ProductPrice[]>>({});
   const [createdProduct, setCreatedProduct] = useState<CreatedProduct>();
   const [savedId, setSavedId] = useState('');
@@ -87,14 +92,18 @@ export function StudioProductsPage() {
   const [loading, setLoading] = useState<'product' | 'prices' | null>(null);
   const inFlight = useRef(false);
 
-  function selectProduct(id: string) {
-    const prices = priceSets[id.trim()] ?? [];
-    const local = prices.find((p) => p.currencyCode === 'XAF');
-    const diaspora = prices.find((p) => p.currencyCode !== 'XAF');
-    setProductId(id);
-    setXaf(local?.amountMinor.toString() ?? '');
-    setCurrency(diaspora?.currencyCode === 'EUR' || diaspora?.currencyCode === 'USD' ? diaspora.currencyCode : '');
-    setCents(diaspora?.amountMinor.toString() ?? '');
+  const suggestedPrices = priceSets[id] ?? selection.product?.prices ?? [];
+  const local = suggestedPrices.find((price) => price.currencyCode === 'XAF');
+  const diaspora = suggestedPrices.find((price) => price.currencyCode === 'EUR' || price.currencyCode === 'USD');
+  const amounts: NonNullable<typeof priceDraft> = priceDraft?.id === id ? priceDraft : {
+    id, xaf: local?.amountMinor.toString() ?? '',
+    currency: diaspora?.currencyCode === 'EUR' || diaspora?.currencyCode === 'USD' ? diaspora.currencyCode : '',
+    cents: diaspora?.amountMinor.toString() ?? '',
+  };
+
+  function selectProduct(selectedId: string) {
+    setManualId(selectedId);
+    setPriceDraft(undefined);
     setPriceError('');
     setSavedId('');
   }
@@ -111,7 +120,7 @@ export function StudioProductsPage() {
     setLoading('product');
     try {
       const result = await apiClient.createProduct(storefront.storefrontId, request);
-      recordProduct(result);
+      recordProduct({ ...result, prices: [] });
       selectProduct(result.productId);
       setCreatedProduct(result);
       setDescription('');
@@ -131,14 +140,14 @@ export function StudioProductsPage() {
     event.preventDefault();
     if (inFlight.current) return;
     setSavedId('');
-    const id = productId.trim();
-    const replacement = buildPriceReplacement(xaf, currency, cents);
-    if (!isValidUuid(id) || !replacement) return setPriceError(copy.invalidPrices);
+    const replacement = buildPriceReplacement(amounts.xaf, amounts.currency, amounts.cents);
+    if (!isValidUuid(id) || !selection.product || !replacement) return setPriceError(copy.invalidPrices);
     inFlight.current = true;
     setLoading('prices');
     setPriceError('');
     try {
       const result = await apiClient.replacePrices(id, replacement);
+      recordPrices(result);
       setPriceSets((current) => ({ ...current, [result.productId]: result.prices }));
       setSavedId(result.productId);
     } catch (failure) {
@@ -149,18 +158,26 @@ export function StudioProductsPage() {
     }
   }
 
-  const recent = products.filter((product) => product.storefrontId === storefront?.storefrontId);
-  const currentProduct = recent.find((product) => product.productId === productId.trim());
 
-  const suggestedPrices = priceSets[productId.trim()];
 
   return (
     <div className="studio-editor">
       <StudioPageIntro title={t.studio.productsTitle} description={copy.productIntro} />
-      {isRestoringStorefront ? <p role="status">{copy.restoringStore}</p> : storefront ? (
+      {!inventory && inventoryLoading ? <p role="status">{copy.inventoryLoading}</p>
+        : !inventory && inventoryError != null ? <div role="alert">
+          <p>{studioError(inventoryError, copy)}</p>
+          <Button variant="secondary" onClick={() => void loadInventory()}>{t.common.retry}</Button>
+        </div> : storefront ? (
         <form className="studio-editor__panel" onSubmit={create}>
           <h3>{copy.createProduct}</h3>
-          <p>{storefront.displayName}</p>
+          {storefronts.length > 1
+            ? <Select label={copy.selectStorefront} value={storefront.storefrontId} disabled={loading !== null}
+                options={storefronts.map((item) => ({ value: item.storefrontId, label: `${item.displayName} (@${item.handle})` }))}
+                onChange={(event) => {
+                  const selected = storefronts.find((item) => item.storefrontId === event.target.value);
+                  if (selected) setStorefront(selected);
+                }} />
+            : <p>{storefront.displayName} (@{storefront.handle})</p>}
           <fieldset className="studio-editor__fieldset" disabled={loading !== null}>
             <div className="studio-editor__fields">
               <Select label={copy.productType} options={PRODUCT_TYPES.map((code) => ({ value: code, label: t.productTypes[code] }))} value={typeCode} onChange={(e) => setTypeCode(e.target.value as ProductTypeCode)} />
@@ -184,44 +201,40 @@ export function StudioProductsPage() {
       ) : (
         <EmptyState title={copy.chooseStore} action={<Link className="studio-editor__link" to="/studio/storefront">{t.studio.storefrontNav}</Link>} />
       )}
-      {recent.length > 0 && <section className="studio-editor__panel">
-        <h3>{copy.createdInSession}</h3>
-        <p>{copy.recentHint}</p>
-        <ul className="studio-editor__list">{recent.map((product) => (
-          <li key={product.productId}>
-            <Button variant="secondary" size="sm" onClick={() => selectProduct(product.productId)} disabled={loading !== null}>
-              {t.productTypes[product.type.code]}
-            </Button>
-            <code>{product.productId}</code>
-          </li>
-        ))}</ul>
-        {currentProduct && <>
-          {currentProduct.description && <p>{currentProduct.description}</p>}
-          <Link className="studio-editor__link" to={`/studio/collaborations?product=${currentProduct.productId}`}>{copy.configureSplit}</Link>
-          <CreatedProductMedia key={currentProduct.productId} product={currentProduct} />
-        </>}
+      {selection.product && <section className="studio-editor__panel">
+        <h3>{t.productTypes[selection.product.type.code]}</h3>
+        {selection.product.description && <p>{selection.product.description}</p>}
+        <Link className="studio-editor__link" to={`/studio/collaborations?product=${selection.product.productId}`}>{copy.configureSplit}</Link>
+        <CreatedProductMedia key={selection.product.productId} product={selection.product} />
       </section>}
-      <form className="studio-editor__panel" onSubmit={savePrices}>
+      <form className="studio-editor__panel" id="studio-product-prices" onSubmit={savePrices}>
         <h3>{copy.prices}</h3>
         <p>{copy.priceKnownProduct}</p>
         <p>{copy.priceHint}</p>
         <fieldset className="studio-editor__fieldset" disabled={loading !== null}>
           <Input label={copy.productId} value={productId} list="studio-price-products" onChange={(e) => selectProduct(e.target.value)} required />
           <datalist id="studio-price-products">
-            {recent.map((product) => <option key={product.productId} value={product.productId}>{t.productTypes[product.type.code]}</option>)}
+            {products.map((product) => <option key={product.productId} value={product.productId}>
+              {product.description || t.productTypes[product.type.code]}
+            </option>)}
           </datalist>
           <div className="studio-editor__fields">
-            <Input label={copy.xaf} inputMode="numeric" value={xaf} onChange={(e) => setXaf(e.target.value)} required />
-            <Select label={copy.diaspora} value={currency} onChange={(e) => setCurrency(e.target.value as typeof currency)}
+            <Input label={copy.xaf} inputMode="numeric" value={amounts.xaf} onChange={(e) => setPriceDraft({ ...amounts, xaf: e.target.value })} required />
+            <Select label={copy.diaspora} value={amounts.currency} onChange={(e) => setPriceDraft({ ...amounts, currency: e.target.value as typeof amounts.currency })}
               options={[{ value: '', label: copy.none }, { value: 'EUR', label: 'EUR' }, { value: 'USD', label: 'USD' }]} />
-            {currency && <Input label={copy.cents} inputMode="numeric" value={cents} onChange={(e) => setCents(e.target.value)} required />}
+            {amounts.currency && <Input label={copy.cents} inputMode="numeric" value={amounts.cents} onChange={(e) => setPriceDraft({ ...amounts, cents: e.target.value })} required />}
           </div>
         </fieldset>
-        <Button type="submit" isLoading={loading === 'prices'} disabled={loading !== null}>{copy.savePrices}</Button>
+        {selection.loading && <p role="status">{t.common.loading}</p>}
+        {selection.error != null && <div role="alert">
+          <p>{studioError(selection.error, copy)}</p>
+          <Button variant="secondary" size="sm" onClick={selection.retry}>{t.common.retry}</Button>
+        </div>}
+        <Button type="submit" isLoading={loading === 'prices'} disabled={loading !== null || !selection.product}>{copy.savePrices}</Button>
         {priceError && <p role="alert">{priceError}</p>}
         {savedId && <p role="status">{copy.savedPrices}</p>}
-        {Boolean(suggestedPrices?.length) && <ul className="studio-editor__list">
-          {suggestedPrices?.map((price) => <li key={price.priceId}>{formatMoney(price.amountMinor, price.currencyCode, locale)}</li>)}
+        {suggestedPrices.length > 0 && <ul className="studio-editor__list">
+          {suggestedPrices.map((price) => <li key={price.priceId}>{formatMoney(price.amountMinor, price.currencyCode, locale)}</li>)}
         </ul>}
       </form>
     </div>

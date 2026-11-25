@@ -24,7 +24,7 @@ export function SplitInvitationPage() {
   const { hash } = useLocation();
   const inviteToken = extractInviteTokenFromHash(hash);
 
-  return <InvitationLanding key={inviteId} inviteId={inviteId} inviteToken={inviteToken} />;
+  return <InvitationLanding key={inviteToken ? `${inviteId}:${inviteToken}` : inviteId} inviteId={inviteId} inviteToken={inviteToken} />;
 }
 
 function InvitationLanding({ inviteId, inviteToken }: { inviteId: string; inviteToken: string | null }) {
@@ -66,16 +66,22 @@ function InvitationLanding({ inviteId, inviteToken }: { inviteId: string; invite
     setDecision(value);
     setDecisionError('');
     try {
-      const data = await apiClient.respondToSplitInvitation(inviteId, inviteToken, value, identity.session);
+      const data = await apiClient.respondToSplitInvitation(inviteId, inviteToken, value, identity.session, controller.signal);
       if (!controller.signal.aborted) setLanding({ kind: 'ready', data });
     } catch (error) {
       if (controller.signal.aborted) return;
       const status = error instanceof ApiClientError ? error.status : null;
       switch (status) {
         case 401: setDecisionError(copy.signInRequired); break;
-        case 403: setDecisionError(copy.phoneRequired); break;
+        case 403: setDecisionError(copy.phoneMismatch); break;
         case 404: setLanding({ kind: 'missing' }); break;
-        case 409: setDecisionError(copy.decisionConflict); break;
+        case 409:
+          if (error instanceof ApiClientError && error.code === 'DECISION_ALREADY_RECORDED') {
+            retry();
+          } else {
+            setDecisionError(copy.decisionConflict);
+          }
+          break;
         case 410: setLanding({ kind: 'expired' }); break;
         default: setDecisionError(copy.decisionFailed);
       }

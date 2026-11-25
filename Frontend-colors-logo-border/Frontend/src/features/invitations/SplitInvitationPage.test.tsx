@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { LanguageProvider } from '@/app/providers/LanguageProvider';
+import { ApiClientError } from '@/types/api';
 import { apiClient } from '@/services/api';
 import { CollaboratorIdentityContext, type CollaboratorIdentity } from './collaboratorIdentity';
 import { SplitInvitationPage } from './pages/SplitInvitationPage';
@@ -41,7 +42,20 @@ describe('split invitation decisions', () => {
     renderInvitation({ status: 'verified', session });
 
     await userEvent.click(await screen.findByRole('button', { name: /accept split/i }));
-    expect(decide).toHaveBeenCalledExactlyOnceWith('invite', 'private-link', 'accept', session);
+    expect(decide).toHaveBeenCalledExactlyOnceWith('invite', 'private-link', 'accept', session, expect.any(AbortSignal));
     expect(await screen.findByText('Accepted')).toBeVisible();
+  });
+  it('explains phone mismatch and renders the recorded decision after a conflict', async () => {
+    const read = vi.spyOn(apiClient, 'getSplitInvitation').mockResolvedValueOnce(invitation)
+      .mockResolvedValueOnce({ ...invitation, status: 'REJECTED' });
+    vi.spyOn(apiClient, 'respondToSplitInvitation')
+      .mockRejectedValueOnce(new ApiClientError({ code: 'PHONE_MISMATCH', kind: 'FORBIDDEN', status: 403, message: '' }))
+      .mockRejectedValueOnce(new ApiClientError({ code: 'DECISION_ALREADY_RECORDED', kind: 'CONFLICT', status: 409, message: '' }));
+    renderInvitation({ status: 'verified', session: { accessToken: 'verified', phoneConfirmed: true } });
+    await userEvent.click(await screen.findByRole('button', { name: /accept split/i }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/does not match the number/i);
+    await userEvent.click(screen.getByRole('button', { name: /accept split/i }));
+    expect(await screen.findByText('Declined')).toBeVisible();
+    expect(read).toHaveBeenCalledTimes(2);
   });
 });

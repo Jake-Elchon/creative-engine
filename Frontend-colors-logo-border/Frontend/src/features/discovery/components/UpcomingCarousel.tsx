@@ -1,23 +1,22 @@
 import { useId, useRef, useState, type KeyboardEvent, type TouchEvent } from 'react';
 import { ArrowLeft, ArrowRight, ArrowUpRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useLanguage } from '@/app/providers/LanguageProvider';
-import { ZibiMark } from '@/components/brand/ZibiLogo';
-import { MediaContainer } from '@/components/media/MediaContainer';
-import type { ArtistSummary } from '@/types/models';
-import { normalizeHandle, publicMediaUrl } from '@/utils/url';
-import { artistStorefrontPath } from '../artists';
+import { curatedArtistPath } from '../artists';
+import type { CuratedArtist } from '../curatedArtists';
+import { ArtistArtwork } from './ArtistArtwork';
 
-export function UpcomingCarousel({ artists }: { artists: ArtistSummary[] }) {
+export function UpcomingCarousel({ artists }: { artists: readonly CuratedArtist[] }) {
   const { t, formatMessage } = useLanguage();
   const labels = t.discovery.carousel;
+  const { search } = useLocation();
   const trackId = useId();
   const [index, setIndex] = useState(0);
   const touchOrigin = useRef<{ x: number; y: number } | null>(null);
   const lastSwipe = useRef(-Infinity);
-  const lastIndex = artists.length;
+  const lastIndex = Math.max(0, artists.length - 1);
   const current = Math.min(index, lastIndex);
-  const slideNames = [...artists.map((artist) => artist.displayName), t.discovery.promo.title];
+  const slideNames = artists.map((artist) => artist.name);
 
   function move(offset: number) {
     setIndex((previous) => Math.max(0, Math.min(Math.min(previous, lastIndex) + offset, lastIndex)));
@@ -57,6 +56,8 @@ export function UpcomingCarousel({ artists }: { artists: ArtistSummary[] }) {
     });
   }
 
+  if (!artists.length) return null;
+
   return (
     <div className="zibi-editorial-slider" role="group" aria-label={labels.label} aria-roledescription={labels.carousel}>
       <div
@@ -76,55 +77,34 @@ export function UpcomingCarousel({ artists }: { artists: ArtistSummary[] }) {
         }}
       >
         <div id={trackId} className="zibi-editorial-slider__track" style={{ transform: `translateX(-${current * 100}%)` }}>
-          {artists.map((artist, slide) => {
-            const handle = normalizeHandle(artist.handle);
-            return (
+          {artists.map((artist, slide) => (
               <article
                 className="zibi-editorial-slide"
-                key={artist.storefrontId}
+                key={artist.slug}
                 aria-roledescription={labels.slide}
                 aria-label={slideLabel(slide)}
                 aria-hidden={slide !== current ? true : undefined}
                 inert={slide !== current}
               >
                 <div className="zibi-editorial-slide__art" aria-hidden="true">
-                  <MediaContainer src={publicMediaUrl(artist.profileImageUrl)} alt="" aspectRatio="4x3" accentTone="terracotta" monogram={artist.displayName} />
+                  <ArtistArtwork artist={artist} decorative />
                 </div>
                 <div className="zibi-editorial-slide__copy">
-                  <p className="zibi-editorial-slide__handle">@{handle}</p>
-                  <h3>{artist.displayName}</h3>
-                  {artist.bio && <p className="zibi-editorial-slide__bio">{artist.bio}</p>}
+                  <p className="zibi-editorial-slide__handle">{t.discovery.genres[artist.genreCategory]}</p>
+                  <h3>{artist.name}</h3>
+                  {artist.bio && <p className="zibi-editorial-slide__bio" lang="en">{artist.bio}</p>}
                   <Link
                     className="zibi-editorial-slide__link"
-                    to={artistStorefrontPath(handle)}
-                    aria-label={formatMessage(t.discovery.visitArtist, { name: artist.displayName })}
+                    to={curatedArtistPath(artist.slug)}
+                    state={{ exploreSearch: search }}
+                    aria-label={formatMessage(t.discovery.readArtist, { name: artist.name })}
                   >
                     {t.discovery.discoverArtist}
                     <ArrowUpRight size={18} aria-hidden="true" />
                   </Link>
                 </div>
               </article>
-            );
-          })}
-          <article
-            className="zibi-editorial-slide zibi-editorial-slide--promo"
-            aria-roledescription={labels.slide}
-            aria-label={slideLabel(lastIndex)}
-            aria-hidden={current !== lastIndex ? true : undefined}
-            inert={current !== lastIndex}
-          >
-            <div className="zibi-editorial-slide__art zibi-editorial-slide__art--promo" aria-hidden="true">
-              <ZibiMark size={148} decorative />
-            </div>
-            <div className="zibi-editorial-slide__copy">
-              <h3>{t.discovery.promo.title}</h3>
-              <p className="zibi-editorial-slide__bio">{t.discovery.promo.description}</p>
-              <a className="zibi-editorial-slide__link" href="#all-artists">
-                {t.discovery.promo.action}
-                <ArrowUpRight size={18} aria-hidden="true" />
-              </a>
-            </div>
-          </article>
+          ))}
         </div>
       </div>
 
@@ -136,7 +116,7 @@ export function UpcomingCarousel({ artists }: { artists: ArtistSummary[] }) {
           <div className="zibi-editorial-slider__dots">
             {slideNames.map((name, slide) => (
               <button
-                key={slide < lastIndex ? artists[slide].storefrontId : 'promo'}
+                key={artists[slide].slug}
                 type="button"
                 aria-label={formatMessage(labels.showSlide, { name })}
                 aria-current={slide === current ? 'true' : undefined}

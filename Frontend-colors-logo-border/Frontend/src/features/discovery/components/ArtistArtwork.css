@@ -1,0 +1,7 @@
+.zibi-artist-artwork--top .zibi-media__img {
+  object-position: center 22%;
+}
+
+.zibi-artist-artwork--contain .zibi-media__img {
+  object-fit: contain;
+}

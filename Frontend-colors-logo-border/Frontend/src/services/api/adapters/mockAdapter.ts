@@ -165,11 +165,7 @@ export class MockApiAdapter implements IApiAdapter {
     return updated;
   }
 
-  async uploadProfileImage(): ReturnType<IApiAdapter['uploadProfileImage']> {
-    throw error(503, 'DEMO_UNAVAILABLE', 'SERVICE_UNAVAILABLE');
-  }
-
-  async removeProfileImage(): ReturnType<IApiAdapter['removeProfileImage']> {
+  async getStudioInventory(): ReturnType<IApiAdapter['getStudioInventory']> {
     throw error(503, 'DEMO_UNAVAILABLE', 'SERVICE_UNAVAILABLE');
   }
 

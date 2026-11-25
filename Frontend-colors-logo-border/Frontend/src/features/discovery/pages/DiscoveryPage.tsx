@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Search, ServerCrash, WifiOff, X } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { ArrowUpRight, Search, ServerCrash, WifiOff, X } from 'lucide-react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { useLanguage } from '@/app/providers/LanguageProvider';
+import { Badge } from '@/components/ui/Badge/Badge';
 import { ZibiMark } from '@/components/brand/ZibiLogo';
 import { Button } from '@/components/ui/Button/Button';
 import { EmptyState } from '@/components/ui/EmptyState/EmptyState';
@@ -14,7 +15,9 @@ import { apiClient } from '@/services/api';
 import { ApiClientError } from '@/types/api';
 import type { ArtistSummary } from '@/types/models';
 import { validateSearchQuery } from '@/utils/validation';
-import { selectEditorialArtists } from '../artists';
+import { curatedArtistPath, popularArtists, searchCuratedArtists, upcomingArtists } from '../artists';
+import { genreCategories } from '../curatedArtists';
+import { ArtistArtwork } from '../components/ArtistArtwork';
 import { ArtistCard } from '../components/ArtistCard';
 import { UpcomingCarousel } from '../components/UpcomingCarousel';
 import './DiscoveryPage.css';
@@ -33,8 +36,6 @@ export function DiscoveryPage() {
   const debouncedQuery = validateSearchQuery(debouncedSearch);
 
   const [artists, setArtists] = useState<ArtistSummary[]>([]);
-  const [editorialPool, setEditorialPool] = useState<ArtistSummary[]>([]);
-  const [editorialDay] = useState(() => Math.floor(Date.now() / 86_400_000));
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [resolvedQuery, setResolvedQuery] = useState<string | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -63,7 +64,6 @@ export function DiscoveryPage() {
       const result = await apiClient.discoverArtists({ q: searchTerm(term), limit, signal: controller.signal });
       if (controller.signal.aborted || requestId !== requestSeq.current) return;
       setArtists(result.items);
-      if (!term) setEditorialPool(result.items);
       setNextCursor(result.nextCursor);
     } catch (error) {
       if (controller.signal.aborted || requestId !== requestSeq.current) return;
@@ -84,7 +84,6 @@ export function DiscoveryPage() {
     if (debouncedQuery.isEmpty && homeSeed && homeSeed !== ignoredSeed.current) {
       const seedArtists = homeSeed.status === 'ready' ? homeSeed.artists : [];
       setArtists(seedArtists);
-      setEditorialPool(seedArtists);
       setNextCursor(homeSeed.status === 'ready' ? homeSeed.nextCursor : null);
       setResolvedQuery('');
       setIsInitialLoading(false);
@@ -102,8 +101,8 @@ export function DiscoveryPage() {
   }, [debouncedQuery.isEmpty, debouncedQuery.isTooLong, debouncedQuery.trimmed, fetchInitial, homeSeed]);
 
   const directoryLoading = isInitialLoading || resolvedQuery !== query.trimmed;
-  const showEditorial = query.isEmpty && (directoryLoading || (!initialError && !seedUnavailable));
-  const editorial = selectEditorialArtists(editorialPool, editorialDay);
+  const curated = searchCuratedArtists(query.trimmed);
+  const featured = query.isEmpty ? upcomingArtists.at(-1) : undefined;
 
   function updateSearch(value: string) {
     if (value.trim() !== query.trimmed) pageRequest.current?.abort();
@@ -145,9 +144,11 @@ export function DiscoveryPage() {
   return (
     <div className="zibi-discovery">
       <section className="zibi-discovery-hero" aria-labelledby="discover-the-sound">
+        <div className="zibi-discovery-hero__glow" aria-hidden="true" />
         <div className="zibi-container zibi-discovery-hero__grid">
           <div className="zibi-discovery-hero__copy">
-            <h1 id="discover-the-sound">{t.discovery.heroTitle}</h1>
+            <Badge variant="gold" className="zibi-discovery-hero__eyebrow">{t.discovery.eyebrow}</Badge>
+            <h1 id="discover-the-sound">{t.discovery.heroTitle} <span>{t.discovery.heroAccent}</span></h1>
             <p>{t.discovery.heroSubtitle}</p>
             <div className="zibi-discovery-hero__search">
               <Input
@@ -167,63 +168,85 @@ export function DiscoveryPage() {
               />
             </div>
           </div>
-          <div className="zibi-discovery-hero__motif" aria-hidden="true">
+          {featured ? <Link to={curatedArtistPath(featured.slug)} className="zibi-discovery-hero__spotlight">
+            <ArtistArtwork artist={featured} priority decorative />
+            <div className="zibi-discovery-hero__identity">
+              <span>{t.discovery.featuredLabel}</span>
+              <strong>{featured.name}</strong>
+              <span>{t.discovery.genres[featured.genreCategory]}</span>
+              <ArrowUpRight size={24} aria-hidden="true" />
+            </div>
+          </Link> : <div className="zibi-discovery-hero__motif" aria-hidden="true">
             <ZibiMark size={172} decorative />
-          </div>
+          </div>}
         </div>
       </section>
 
-      {showEditorial && (
-        <>
-          <section className="zibi-explore-section zibi-explore-section--upcoming" aria-labelledby="upcoming-artists">
-            <div className="zibi-container">
-              <div className="zibi-explore-heading">
+      <hr className="cultural-divider" />
+      {query.isEmpty && <>
+        <section className="zibi-explore-section zibi-explore-section--upcoming" aria-labelledby="upcoming-artists">
+          <div className="zibi-container">
+            <div className="zibi-explore-heading zibi-explore-heading--upcoming">
+              <div>
                 <h2 id="upcoming-artists">{t.discovery.upcomingTitle}</h2>
                 <p>{t.discovery.upcomingSubtitle}</p>
               </div>
-              {directoryLoading ? (
-                <div className="zibi-explore-feature-loading" role="status">
-                  <span className="sr-only">{t.common.loading}</span>
-                  <Skeleton height="100%" />
-                </div>
-              ) : <UpcomingCarousel artists={editorial.upcoming} />}
+              <a href="#all-artists">{t.discovery.sectionTitle}</a>
             </div>
-          </section>
+            <UpcomingCarousel artists={upcomingArtists} />
+          </div>
+        </section>
 
-          <section className="zibi-explore-section zibi-explore-section--popular" aria-labelledby="popular-artists">
-            <div className="zibi-container">
-              <div className="zibi-explore-heading">
-                <h2 id="popular-artists">{t.discovery.popularTitle}</h2>
-                <p>{t.discovery.popularSubtitle}</p>
-              </div>
-              {directoryLoading ? (
-                <div className="zibi-explore-popular-grid" aria-busy="true">
-                  <Skeleton height="90px" />
-                  <Skeleton height="90px" />
-                </div>
-              ) : editorial.popular.length ? (
-                <div className="zibi-explore-popular-grid">
-                  {editorial.popular.map((artist) => <ArtistCard key={artist.storefrontId} artist={artist} compact />)}
-                </div>
-              ) : <p className="zibi-explore-note">{t.discovery.popularEmpty}</p>}
+        <section className="zibi-explore-section zibi-explore-section--popular pattern-bamileke" aria-labelledby="popular-artists">
+          <div className="zibi-container">
+            <div className="zibi-explore-heading"><h2 id="popular-artists">{t.discovery.popularTitle}</h2></div>
+            <div className="zibi-explore-popular-grid">
+              {popularArtists.map((artist) => <ArtistCard key={artist.slug} artist={artist} compact />)}
             </div>
-          </section>
-        </>
-      )}
+          </div>
+        </section>
+      </>}
 
-      <section id="all-artists" className="zibi-explore-section zibi-explore-section--directory" aria-labelledby="directory-heading">
+      <section id="all-artists" className="zibi-explore-section zibi-explore-section--directory" aria-labelledby="curated-directory-heading">
         <div className="zibi-container">
           <div className="zibi-explore-heading zibi-explore-heading--directory">
             <div>
-              <h2 id="directory-heading">{t.discovery.sectionTitle}</h2>
+              <h2 id="curated-directory-heading">{t.discovery.sectionTitle}</h2>
               <p>{t.discovery.sectionSubtitle}</p>
+            </div>
+            {!query.isTooLong && curated.length > 0 && (
+              <span className="zibi-explore-count">{formatMessage(t.discovery.resultsCount, { count: curated.length })}</span>
+            )}
+          </div>
+          {query.isTooLong ? <EmptyState title={t.discovery.queryTooLong} />
+            : curated.length === 0 ? (
+              <EmptyState title={t.discovery.emptyTitle} subtitle={t.discovery.emptySubtitle}
+                action={<Button variant="secondary" onClick={() => updateSearch('')}>{t.discovery.clearSearch}</Button>} />
+            ) : genreCategories.map((genre) => {
+              const matches = curated.filter(({ genreCategory }) => genreCategory === genre);
+              return matches.length > 0 && <div className="zibi-curated-genre" key={genre}>
+                <h3>{t.discovery.genres[genre]}</h3>
+                <div className="zibi-artist-grid">
+                  {matches.map((artist) => <ArtistCard key={artist.slug} artist={artist} />)}
+                </div>
+              </div>;
+            })}
+        </div>
+      </section>
+
+      <section className="zibi-explore-section zibi-explore-section--directory zibi-registered-artists" aria-labelledby="directory-heading">
+        <div className="zibi-container">
+          <div className="zibi-explore-heading zibi-explore-heading--directory">
+            <div>
+              <h2 id="directory-heading">{t.discovery.registeredTitle}</h2>
+              <p>{t.discovery.registeredSubtitle}</p>
             </div>
             {!query.isTooLong && !directoryLoading && !initialError && !seedUnavailable && artists.length > 0 && (
               <span className="zibi-explore-count">{formatMessage(t.discovery.resultsCount, { count: artists.length })}</span>
             )}
           </div>
           {query.isTooLong ? (
-            <EmptyState title={t.discovery.queryTooLong} />
+            <p>{t.discovery.queryTooLong}</p>
           ) : directoryLoading ? (
             <div className="zibi-artist-grid" aria-busy="true">
               {Array.from({ length: 4 }, (_, index) => (

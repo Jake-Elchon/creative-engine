@@ -7,6 +7,10 @@ import { StudioLayout } from '@/layouts/StudioLayout';
 import { SignInPage } from '@/features/authentication/components/SignInPage';
 import { StudioRouteGuard } from '@/app/guards/StudioRouteGuard';
 
+const CuratedArtistPage = lazy(() =>
+  import('@/features/discovery/pages/CuratedArtistPage').then((m) => ({ default: m.CuratedArtistPage })),
+);
+
 const StorefrontPage = lazy(() =>
   import('@/features/storefront/pages/StorefrontPage').then((m) => ({
     default: m.StorefrontPage,
@@ -101,6 +105,10 @@ export const router = createBrowserRouter([
             <SplitInvitationPage />
           </RouteSuspense>
         ),
+      },
+      {
+        path: 'artists/:slug',
+        element: <RouteSuspense><CuratedArtistPage /></RouteSuspense>,
       },
       {
         path: ':handle',

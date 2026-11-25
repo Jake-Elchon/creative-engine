@@ -3,13 +3,20 @@ import type {
   ArtistSummary, CheckoutInitiateRequest, CheckoutTransaction, CreatedProduct,
   DiscoveryArtistsResponse, PriceReplacement, ProductCreateRequest, ProductPricesResponse,
   SplitCreateRequest, SplitCreateResponse, SplitDecision, SplitInvitationDetail,
-  StorefrontCreateRequest, StorefrontDetail, StorefrontUpdateRequest, SupportedCurrency,
+  StorefrontCreateRequest, StorefrontDetail, StorefrontUpdateRequest, StudioInventory, SupportedCurrency,
 } from '@/types/models';
 
 export interface DiscoverArtistsParams {
   q?: string;
   cursor?: string;
   limit?: number;
+  signal?: AbortSignal;
+}
+
+export interface GetStudioInventoryParams {
+  cursor?: string;
+  limit?: number;
+  productId?: string;
   signal?: AbortSignal;
 }
 
@@ -48,15 +55,14 @@ export interface IApiAdapter {
   getPublicStorefront(params: GetStorefrontParams): Promise<StorefrontDetail>;
   createStorefront(request: StorefrontCreateRequest): Promise<ArtistSummary>;
   updateStorefront(id: string, request: StorefrontUpdateRequest): Promise<ArtistSummary>;
-  uploadProfileImage(id: string, file: File): Promise<ArtistSummary>;
-  removeProfileImage(id: string): Promise<ArtistSummary>;
+  getStudioInventory(params?: GetStudioInventoryParams): Promise<StudioInventory>;
   createProduct(storefrontId: string, request: ProductCreateRequest): Promise<CreatedProduct>;
   replacePrices(productId: string, request: PriceReplacement): Promise<ProductPricesResponse>;
   getProductMedia(productId: string, kind: 'audio' | 'video', options?: MediaOptions): Promise<Blob>;
   getActiveSplit(productId: string, signal?: AbortSignal): Promise<SplitCreateResponse | null>;
-  createSplit(productId: string, request: SplitCreateRequest, idempotencyKey: string): Promise<SplitCreateResponse>;
+  createSplit(productId: string, request: SplitCreateRequest, idempotencyKey: string, expectedSplitId?: string | null): Promise<SplitCreateResponse>;
   initiateCheckout(params: CheckoutInitiateParams): Promise<CheckoutTransaction>;
   getCheckoutStatus(id: string, guestSessionToken?: string, signal?: AbortSignal): Promise<CheckoutTransaction>;
   getSplitInvitation(id: string, inviteToken: string, signal?: AbortSignal): Promise<SplitInvitationDetail>;
-  respondToSplitInvitation(id: string, inviteToken: string, decision: SplitDecision, session: VerifiedCollaboratorSession): Promise<SplitInvitationDetail>;
+  respondToSplitInvitation(id: string, inviteToken: string, decision: SplitDecision, session: VerifiedCollaboratorSession, signal?: AbortSignal): Promise<SplitInvitationDetail>;
 }

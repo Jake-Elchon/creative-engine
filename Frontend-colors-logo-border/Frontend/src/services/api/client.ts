@@ -77,12 +77,11 @@ async function request<T>(
   }
 
   const multipart = body instanceof FormData;
-  const file = body instanceof Blob ? body : undefined;
-  const requestBody = multipart ? body : file ? file : body === undefined ? undefined : JSON.stringify(body);
+  const requestBody = multipart ? body : body === undefined ? undefined : JSON.stringify(body);
   async function send(token: string | null) {
     signal?.throwIfAborted();
     const headers: Record<string, string> = { Accept: accept, ...options.headers };
-    if (body !== undefined && !multipart) headers['Content-Type'] = file?.type || 'application/json';
+    if (body !== undefined && !multipart) headers['Content-Type'] = 'application/json';
     if (token) headers.Authorization = `Bearer ${token}`;
 
     const controller = new AbortController();

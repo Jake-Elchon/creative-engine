@@ -7,7 +7,7 @@ export const API_ENDPOINTS = {
   STOREFRONT_PUBLIC: (handle: string) => `/storefront/${encodeURIComponent(handle)}`,
   STOREFRONTS_CREATE: '/storefronts',
   STOREFRONTS_UPDATE: (id: string) => `/storefronts/${encodeURIComponent(id)}`,
-  STOREFRONT_PROFILE_IMAGE: (id: string) => `/storefronts/${encodeURIComponent(id)}/profile-image`,
+  STUDIO_INVENTORY: '/me/studio',
   STOREFRONT_PRODUCTS_CREATE: (id: string) => `/storefronts/${encodeURIComponent(id)}/products`,
   PRODUCT_MEDIA: (id: string, kind: 'audio' | 'video') => `/products/${encodeURIComponent(id)}/media/${kind}`,
   PRODUCT_PRICES_PUT: (id: string) => `/products/${encodeURIComponent(id)}/prices`,

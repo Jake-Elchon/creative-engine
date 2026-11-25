@@ -16,7 +16,7 @@ npm run build
 Production builds always use the HTTP adapter. Set `VITE_API_BASE_URL` to
 the deployment API base and `VITE_PUBLIC_DOMAIN` to the public site origin.
 The host must serve `index.html` for client routes such as `/@handle`,
-`/invites/:inviteId` and `/studio/*`. Hosted deployments also need a same-origin
+`/invites/:inviteId`, `/artists/:slug`, and `/studio/*`. Hosted deployments also need a same-origin
 API proxy or an API with CORS configured for the site origin.
 
 Vite development uses the real localhost API by default. Start KamerPay on
@@ -36,12 +36,11 @@ Use `VITE_USE_MOCK_API=true` in `.env.local` only for an explicit UI demo.
 Its catalog and payment states are simulated. Split submission and verified
 decisions need the real service.
 
-## API v1 limits
+## Studio and API limits
 
-Studio can recover a storefront by known handle and use its ID for a write.
-Ownership is enforced by the API. The product workspace uses IDs created in the
-current Studio session or IDs entered by the creator, because API v1 provides no
-private owner inventory.
+Studio reads its storefronts and paginated owner inventory from
+`GET /api/v1/me/studio`. The server derives ownership from the Bearer session.
+The selected storefront handle is remembered for the account on this browser.
 
 The invitation landing page reads the link fragment. Decision submission uses
 `CollaboratorIdentityContext` as the integration point for an approved
@@ -51,3 +50,20 @@ unconfigured. The local test account cannot submit an invitation decision.
 Checkout takes XAF only. The status view reports Fapshi collection. Pending
 attempts can be reopened while the storefront page stays mounted. The guest
 credential and payment contact details are kept in memory.
+
+## Editorial artist content
+
+The supplied editorial catalog lives in `src/features/discovery/curatedArtists.ts`.
+It powers Upcoming Artists, Popular Artists, and the genre-grouped Explore All
+Artists. The source filename and web asset are recorded together for each artist.
+The supplied JPEGs live under `public/assets/artists/`; the two original archives
+remain the source copies. Portraits use centered or upper framing, while cover
+art and posters are displayed in full.
+
+Curated profile links use `/artists/:slug`. The registered storefront directory
+continues to use the paginated `GET /api/v1/artists` endpoint and real
+`/@handle` storefront links. Explore uses the existing `?q=` parameter to
+search both collections. Curated slugs identify editorial profiles; do not
+assign them as storefront handles. Only add a storefront link when the
+association is confirmed. No database seed or artist-account creation is
+required.

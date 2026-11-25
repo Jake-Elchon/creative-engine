@@ -88,33 +88,33 @@ describe('API v1 HTTP adapter', () => {
     expect(JSON.parse(String(calls[1][1].body))).toEqual({ decision: 'reject' });
   });
 
-  it('uploads the unmodified image body, removes it, and checks owner-only split status', async () => {
-    const picture = new File(['png bytes'], 'picture.png', { type: 'image/png' });
-    const profile = { storefrontId: 'store', profileImageUrl: '/api/v1/storefronts/store/profile-image?v=one' };
+  it('reads owner inventory and sends preconditions on split creation and replacement', async () => {
+    const inventory = { storefronts: [], products: [], nextCursor: null };
     const fetch = vi.fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: profile })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ...profile, profileImageUrl: null } })))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: null })));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: inventory })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: null })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: {} })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: {} })));
     vi.stubGlobal('fetch', fetch);
     setAuthTokenProvider(() => 'owner');
 
-    await expect(api.uploadProfileImage('store', picture)).resolves.toMatchObject(profile);
-    await expect(api.removeProfileImage('store')).resolves.toMatchObject({ profileImageUrl: null });
+    await expect(api.getStudioInventory({ cursor: 'cursor', limit: 2 })).resolves.toEqual(inventory);
     await expect(api.getActiveSplit('product')).resolves.toBeNull();
+    const splits = { splits: [{ phone: '+237677000001', shareBps: 10000 }] };
+    await api.createSplit('product', splits, 'first', null);
+    await api.createSplit('product', splits, 'replacement', 'sheet');
 
-    const [[putUrl, put], [deleteUrl, remove], [splitUrl, split]] = fetch.mock.calls as [string, RequestInit][];
-    expect(new URL(putUrl).pathname).toBe('/api/v1/storefronts/store/profile-image');
-    expect(put.method).toBe('PUT');
-    expect(put.body).toBe(picture);
-    expect(new Headers(put.headers).get('Content-Type')).toBe('image/png');
-    expect(deleteUrl).toBe(putUrl);
-    expect(remove.method).toBe('DELETE');
-    expect(remove.body).toBeUndefined();
+    const [[inventoryUrl, inventoryRequest], [splitUrl, split], [, create], [, replace]] = fetch.mock.calls as [string, RequestInit][];
+    expect(new URL(inventoryUrl).pathname).toBe('/api/v1/me/studio');
+    expect(new URL(inventoryUrl).searchParams.get('cursor')).toBe('cursor');
+    expect(new URL(inventoryUrl).searchParams.get('creatorId')).toBeNull();
     expect(new URL(splitUrl).pathname).toBe('/api/v1/products/product/splits');
-    expect(split.method).toBe('GET');
-    expect(split.cache).toBe('no-store');
-    for (const request of [put, remove, split]) {
+    expect(new Headers(create.headers).get('If-None-Match')).toBe('*');
+    expect(new Headers(replace.headers).get('If-Match')).toBe('"sheet"');
+    expect(new Headers(replace.headers).get('Idempotency-Key')).toBe('replacement');
+    for (const request of [inventoryRequest, split, create, replace]) {
       expect(new Headers(request.headers).get('Authorization')).toBe('Bearer owner');
+      expect(request.cache).toBe('no-store');
     }
   });
 

@@ -8,7 +8,7 @@ import {
   Share2,
   Sparkles,
 } from 'lucide-react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { useLanguage } from '@/app/providers/LanguageProvider';
 import { useToast } from '@/app/providers/ToastProvider';
 import { ProductVideo } from '@/components/media/ProductVideo';
@@ -36,6 +36,8 @@ import './StorefrontPage.css';
 export function StorefrontPage() {
   const { handle: rawHandle } = useParams<{ handle: string }>();
   const cleanHandle = normalizeHandle(rawHandle);
+  const { state } = useLocation();
+  const backToExplore = { pathname: '/', search: typeof state?.exploreSearch === 'string' ? state.exploreSearch : '' };
   const { locale, t, formatMessage } = useLanguage();
   const { pushToast } = useToast();
 
@@ -221,7 +223,7 @@ export function StorefrontPage() {
             onRetry={error.isRetryable ? () => void loadStorefront() : undefined}
           />
           <div style={{ marginTop: 'var(--space-6)', textAlign: 'center' }}>
-            <Link to="/">
+            <Link to={backToExplore}>
               <Button variant="ghost" leftIcon={<ArrowLeft size={16} />}>
                 {t.common.backToDiscovery}
               </Button>
@@ -242,7 +244,7 @@ export function StorefrontPage() {
           <div className="zibi-storefront-header__glow" aria-hidden="true" />
           <div className="zibi-container">
             <div style={{ marginBottom: 'var(--space-5)', position: 'relative', zIndex: 1 }}>
-              <Link to="/">
+              <Link to={backToExplore}>
                 <Button variant="ghost" size="sm" leftIcon={<ArrowLeft size={14} />}>
                   {t.common.backToDiscovery}
                 </Button>
@@ -251,7 +253,6 @@ export function StorefrontPage() {
 
             <div className="zibi-storefront-banner">
               <MediaContainer
-                src={publicMediaUrl(artist.profileImageUrl)}
                 alt={artist.displayName}
                 aspectRatio="1x1"
                 accentTone="gold"

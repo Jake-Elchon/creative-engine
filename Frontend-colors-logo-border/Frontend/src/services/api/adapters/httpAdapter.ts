@@ -5,10 +5,10 @@ import type { AuthSession, OtpLoginPayload, OtpRequestPayload, OtpRequestRespons
 import type {
   ArtistSummary, CheckoutTransaction, CreatedProduct, DiscoveryArtistsResponse, PriceReplacement,
   ProductCreateRequest, ProductPricesResponse, SplitCreateRequest, SplitCreateResponse,
-  SplitDecision, SplitInvitationDetail, StorefrontCreateRequest, StorefrontDetail, StorefrontUpdateRequest,
+  SplitDecision, SplitInvitationDetail, StorefrontCreateRequest, StorefrontDetail, StorefrontUpdateRequest, StudioInventory,
 } from '@/types/models';
 import type {
-  CheckoutInitiateParams, DiscoverArtistsParams, GetStorefrontParams, IApiAdapter, MediaOptions,
+  CheckoutInitiateParams, DiscoverArtistsParams, GetStorefrontParams, GetStudioInventoryParams, IApiAdapter, MediaOptions,
   VerifiedCollaboratorSession,
 } from './types';
 
@@ -53,12 +53,10 @@ export class HttpApiAdapter implements IApiAdapter {
     return httpRequest<ArtistSummary>(routes.STOREFRONTS_UPDATE(id), { method: 'PATCH', body });
   }
 
-  uploadProfileImage(id: string, body: File) {
-    return httpRequest<ArtistSummary>(routes.STOREFRONT_PROFILE_IMAGE(id), { method: 'PUT', body });
-  }
-
-  removeProfileImage(id: string) {
-    return httpRequest<ArtistSummary>(routes.STOREFRONT_PROFILE_IMAGE(id), { method: 'DELETE' });
+  getStudioInventory({ cursor, limit, productId, signal }: GetStudioInventoryParams = {}) {
+    return httpRequest<StudioInventory>(routes.STUDIO_INVENTORY, {
+      query: { cursor, limit, productId }, signal, noStore: true,
+    });
   }
 
   createProduct(storefrontId: string, { typeCode, description, videoFile, audioFile, videoPreviewFile }: ProductCreateRequest) {
@@ -91,9 +89,12 @@ export class HttpApiAdapter implements IApiAdapter {
     return httpRequest<SplitCreateResponse | null>(routes.PRODUCT_SPLITS(productId), { signal, noStore: true });
   }
 
-  createSplit(productId: string, body: SplitCreateRequest, idempotencyKey: string) {
+  createSplit(productId: string, body: SplitCreateRequest, idempotencyKey: string, expectedSplitId?: string | null) {
+    const headers: Record<string, string> = { 'Idempotency-Key': idempotencyKey };
+    if (expectedSplitId === null) headers['If-None-Match'] = '*';
+    if (expectedSplitId) headers['If-Match'] = `"${expectedSplitId}"`;
     return httpRequest<SplitCreateResponse>(routes.PRODUCT_SPLITS(productId), {
-      method: 'POST', body, headers: { 'Idempotency-Key': idempotencyKey }, noStore: true,
+      method: 'POST', body, headers, noStore: true,
     });
   }
 
@@ -116,9 +117,9 @@ export class HttpApiAdapter implements IApiAdapter {
     });
   }
 
-  respondToSplitInvitation(id: string, inviteToken: string, decision: SplitDecision, session: VerifiedCollaboratorSession) {
+  respondToSplitInvitation(id: string, inviteToken: string, decision: SplitDecision, session: VerifiedCollaboratorSession, signal?: AbortSignal) {
     return httpRequest<SplitInvitationDetail>(routes.SPLIT_INVITE_DECISION(id), {
-      method: 'POST', body: { decision }, noStore: true, omitAuth: true,
+      method: 'POST', body: { decision }, signal, noStore: true, omitAuth: true,
       headers: { 'X-Invite-Token': inviteToken, Authorization: `Bearer ${session.accessToken}` },
     });
   }
