@@ -1,68 +1,40 @@
-import { ArrowUpRight, MapPin } from 'lucide-react';
+import { ArrowUpRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useLanguage } from '@/app/providers/LanguageProvider';
 import { MediaContainer } from '@/components/media/MediaContainer';
 import type { ArtistSummary } from '@/types/models';
-import { normalizeHandle } from '@/utils/url';
+import { normalizeHandle, publicMediaUrl } from '@/utils/url';
+import { artistStorefrontPath } from '../artists';
 import './ArtistCard.css';
 
-export interface ArtistCardProps {
-  artist: ArtistSummary;
-  index?: number;
-}
-
-export function ArtistCard({ artist, index = 0 }: ArtistCardProps) {
-  const { t } = useLanguage();
-  const cleanHandle = normalizeHandle(artist.handle);
-  const destination = `/@${cleanHandle}`;
+export function ArtistCard({ artist, compact = false }: { artist: ArtistSummary; compact?: boolean }) {
+  const { t, formatMessage } = useLanguage();
+  const handle = normalizeHandle(artist.handle);
 
   return (
-    <Link to={destination} className="zibi-artist-card">
-      <div className="zibi-artist-card__media">
-        {artist.genre && (
-          <div className="zibi-artist-card__genre">
-            <span>{artist.genre}</span>
-          </div>
-        )}
-        <span className="zibi-artist-card__index" aria-hidden="true">
-          {String(index + 1).padStart(2, '0')}
-        </span>
+    <Link
+      to={artistStorefrontPath(handle)}
+      className={compact ? 'zibi-artist-card zibi-artist-card--compact' : 'zibi-artist-card'}
+      aria-label={formatMessage(t.discovery.visitArtist, { name: artist.displayName })}
+    >
+      <div className="zibi-artist-card__media" aria-hidden="true">
         <MediaContainer
-          src={artist.avatarUrl}
-          alt={`${artist.displayName}, ${artist.genre || 'Zibi creator'} from ${artist.city || 'Cameroon'}`}
-          aspectRatio="3x4"
-          accentTone={artist.accentTone || 'gold'}
+          src={publicMediaUrl(artist.profileImageUrl)}
+          alt=""
+          aspectRatio={compact ? '1x1' : '4x3'}
+          accentTone={compact ? 'forest' : 'gold'}
           monogram={artist.displayName}
         />
       </div>
-
       <div className="zibi-artist-card__body">
-        <div className="zibi-artist-card__header">
-          <div>
-            <h3 className="zibi-artist-card__name">{artist.displayName}</h3>
-            <span className="zibi-artist-card__handle">@{cleanHandle}</span>
-          </div>
-          <span className="zibi-artist-card__arrow" aria-hidden="true">
-            <ArrowUpRight size={17} />
-          </span>
+        <div className="zibi-artist-card__identity">
+          <h3>{artist.displayName}</h3>
+          <span className="zibi-artist-card__handle">@{handle}</span>
         </div>
-
-        <p className="zibi-artist-card__bio">{artist.bio}</p>
-
-        <div className="zibi-artist-card__footer">
-          <span className="zibi-artist-card__city">
-            {artist.city && (
-              <>
-                <MapPin size={12} />
-                {artist.city}
-              </>
-            )}
-          </span>
-          <span className="zibi-artist-card__cta">
-            {t.common.viewStorefront}
-          </span>
-        </div>
+        {!compact && artist.bio && <p className="zibi-artist-card__bio">{artist.bio}</p>}
+        {!compact && <span className="zibi-artist-card__cta">{t.common.viewStorefront}</span>}
       </div>
+      <ArrowUpRight className="zibi-artist-card__arrow" size={20} aria-hidden="true" />
     </Link>
   );
 }

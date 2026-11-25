@@ -21,12 +21,12 @@ function wrapper({ children }: { children: ReactNode }) {
 
 const sampleProduct: StorefrontProduct = {
   productId: '11111111-1111-1111-1111-111111111111',
-  title: 'Wouri Sunrise',
   description: 'EP',
-  type: 'MUSIC',
-  previewAvailable: true,
-  xafPrice: 2500,
-  splitsComplete: true,
+  type: { id: 'release-type', code: 'release', name: 'Release' },
+  previewUrl: null,
+  prices: [{ priceId: 'local-price', currencyCode: 'XAF', amountMinor: 2500 }],
+  displayCurrency: 'XAF',
+  checkoutAvailable: true,
 };
 
 describe('useCheckout', () => {
@@ -37,7 +37,7 @@ describe('useCheckout', () => {
 
   it('prevents checkout when XAF price is invalid', async () => {
     const initSpy = vi.spyOn(apiClient, 'initiateCheckout');
-    const invalidProduct = { ...sampleProduct, xafPrice: 0 };
+    const invalidProduct = { ...sampleProduct, prices: [] };
 
     const { result } = renderHook(
       () => useCheckout({ product: invalidProduct }),
@@ -62,26 +62,12 @@ describe('useCheckout', () => {
   it('reuses Idempotency-Key for identical retry and regenerates on changed context', async () => {
     const initSpy = vi
       .spyOn(apiClient, 'initiateCheckout')
-      .mockRejectedValueOnce(
-        new ApiClientError({
-          message: 'Unavailable',
-          code: 'PAYMENT_UNAVAILABLE',
-          status: 503,
-          kind: 'SERVICE_UNAVAILABLE',
-        }),
-      )
-      .mockResolvedValue({
-        transactionId: 'tx_1',
-        currencyCode: 'XAF',
-        amountMinor: 2500,
-        createdAt: new Date().toISOString(),
-        confirmedAt: null,
-        isRegisteredBuyer: false,
-        status: 'PENDING',
-        rail: 'mtn',
-        guestSessionToken: 'gst_123',
-        guestSessionExpiresAt: new Date(Date.now() + 600_000).toISOString(),
-      });
+      .mockRejectedValue(new ApiClientError({
+        message: 'Unavailable',
+        code: 'PAYMENT_UNAVAILABLE',
+        status: 503,
+        kind: 'SERVICE_UNAVAILABLE',
+      }));
 
     const { result } = renderHook(
       () => useCheckout({ product: sampleProduct, pollingIntervalMs: 60_000 }),
@@ -118,33 +104,34 @@ describe('useCheckout', () => {
     expect(changedKey).not.toBe(firstKey);
   });
 
-  it('handles PRICE_CHANGED by invoking onPriceChanged callback', async () => {
-    const onPriceChanged = vi.fn();
-    vi.spyOn(apiClient, 'initiateCheckout').mockRejectedValue(
-      new ApiClientError({
-        message: 'Price changed',
-        code: 'PRICE_CHANGED',
-        status: 409,
-        kind: 'CONFLICT',
-      }),
-    );
-
-    const { result } = renderHook(
-      () => useCheckout({ product: sampleProduct, onPriceChanged }),
-      { wrapper },
-    );
-
+  it('refreshes a changed price and waits for a second explicit confirmation', async () => {
+    const refresh = vi.fn().mockResolvedValue({
+      ...sampleProduct,
+      prices: [{ ...sampleProduct.prices[0], amountMinor: 3400 }],
+    });
+    const initiate = vi.spyOn(apiClient, 'initiateCheckout').mockRejectedValueOnce(
+      new ApiClientError({ message: 'Price changed', code: 'PRICE_CHANGED', status: 409, kind: 'CONFLICT' }),
+    ).mockResolvedValue({
+      transactionId: 'tx_updated', currencyCode: 'XAF', amountMinor: 3400,
+      createdAt: new Date().toISOString(), confirmedAt: null, status: 'PENDING', rail: 'mtn',
+      isRegisteredBuyer: false, guestSessionToken: 'guest_token',
+    });
+    const { result } = renderHook(() => useCheckout({ product: sampleProduct, onPriceChanged: refresh }), { wrapper });
     act(() => {
       result.current.setBuyerPhone('+237677000000');
       result.current.setBuyerEmail('fan@example.com');
     });
 
-    await act(async () => {
-      await result.current.initiate();
-    });
+    await act(async () => { await result.current.initiate(); });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(initiate).toHaveBeenCalledOnce();
+    expect(initiate.mock.calls[0][0].request.expectedAmountMinor).toBe(2500);
+    expect(result.current.priceReview).toMatchObject({ state: 'ready', previous: 2500 });
+    expect(result.current.transaction).toBeNull();
 
-    expect(onPriceChanged).toHaveBeenCalledTimes(1);
-    expect(result.current.error).toBeTruthy();
+    await act(async () => { await result.current.initiate(); });
+    expect(initiate.mock.calls[1][0].request.expectedAmountMinor).toBe(3400);
+    expect(initiate.mock.calls[1][0].idempotencyKey).not.toBe(initiate.mock.calls[0][0].idempotencyKey);
   });
 
   it('polls guest status with guest token from PENDING to SUCCESS and stops polling', async () => {
@@ -229,6 +216,34 @@ describe('useCheckout', () => {
       await vi.advanceTimersByTimeAsync(3000);
     });
     expect(statusSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a transient polling failure with backoff', async () => {
+    vi.useFakeTimers();
+    const initial = {
+      transactionId: 'tx_retry', currencyCode: 'XAF' as const, amountMinor: 2500,
+      createdAt: new Date().toISOString(), confirmedAt: null,
+      status: 'PENDING' as const, rail: 'mtn' as const,
+      isRegisteredBuyer: false, guestSessionToken: 'guest_token',
+    };
+    vi.spyOn(apiClient, 'initiateCheckout').mockResolvedValue(initial);
+    const status = vi.spyOn(apiClient, 'getCheckoutStatus')
+      .mockRejectedValueOnce(new ApiClientError({ message: 'Offline', status: 0, code: 'NETWORK_ERROR', kind: 'NETWORK_ERROR' }))
+      .mockResolvedValueOnce({ ...initial, status: 'SUCCESS' });
+    const { result } = renderHook(() => useCheckout({ product: sampleProduct, pollingIntervalMs: 1_000 }), { wrapper });
+    act(() => {
+      result.current.setBuyerPhone('+237677000000');
+      result.current.setBuyerEmail('fan@example.com');
+    });
+    await act(async () => { await result.current.initiate(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_000); });
+    expect(result.current.statusError).toBeTruthy();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1_999); });
+    expect(status).toHaveBeenCalledOnce();
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(status).toHaveBeenCalledTimes(2);
+    expect(result.current.transaction?.status).toBe('SUCCESS');
+    expect(result.current.statusError).toBeNull();
   });
 
   it('handles 410 CHECKOUT_SESSION_EXPIRED and stops polling', async () => {

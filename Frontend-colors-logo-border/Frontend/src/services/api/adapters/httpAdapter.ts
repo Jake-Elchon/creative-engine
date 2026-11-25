@@ -1,134 +1,125 @@
-import { httpRequest } from '@/services/api/client';
-import { API_ENDPOINTS } from '@/services/api/endpoints';
-import type {
-  CheckoutInitiateParams,
-  DiscoverArtistsParams,
-  GetStorefrontParams,
-  IApiAdapter,
-} from '@/services/api/adapters/types';
-import type {
-  AuthSession,
-  OtpRequestPayload,
-  OtpRequestResponse,
-  OtpVerifyPayload,
-} from '@/types/auth';
-import type {
-  CheckoutTransaction,
-  DiscoveryArtistsResponse,
-  SplitInvitationDetail,
-  StorefrontDetail,
-} from '@/types/models';
+import { httpRequest, httpMediaRequest } from '@/services/api/client';
+import { API_ENDPOINTS as routes } from '@/services/api/endpoints';
 import { normalizeHandle } from '@/utils/url';
+import type { AuthSession, OtpLoginPayload, OtpRequestPayload, OtpRequestResponse, OtpVerifyPayload, SessionTokens } from '@/types/auth';
+import type {
+  ArtistSummary, CheckoutTransaction, CreatedProduct, DiscoveryArtistsResponse, PriceReplacement,
+  ProductCreateRequest, ProductPricesResponse, SplitCreateRequest, SplitCreateResponse,
+  SplitDecision, SplitInvitationDetail, StorefrontCreateRequest, StorefrontDetail, StorefrontUpdateRequest,
+} from '@/types/models';
+import type {
+  CheckoutInitiateParams, DiscoverArtistsParams, GetStorefrontParams, IApiAdapter, MediaOptions,
+  VerifiedCollaboratorSession,
+} from './types';
 
 export class HttpApiAdapter implements IApiAdapter {
-  public readonly isMock = false;
+  readonly isMock = false;
 
-  requestOtp(payload: OtpRequestPayload): Promise<OtpRequestResponse> {
-    return httpRequest<OtpRequestResponse>(API_ENDPOINTS.AUTH_OTP_REQUEST, {
-      method: 'POST',
-      body: payload,
-      noStore: true,
-      omitAuth: true,
+  requestOtp(body: OtpRequestPayload) {
+    return httpRequest<OtpRequestResponse>(routes.AUTH_OTP_REQUEST, { method: 'POST', body, noStore: true, omitAuth: true });
+  }
+
+  verifyOtp(body: OtpVerifyPayload) {
+    return httpRequest<AuthSession>(routes.AUTH_OTP_VERIFY, { method: 'POST', body, noStore: true, omitAuth: true });
+  }
+
+  login(body: OtpLoginPayload) {
+    return httpRequest<AuthSession>(routes.AUTH_LOGIN, { method: 'POST', body, noStore: true, omitAuth: true });
+  }
+
+  refreshSession(refreshToken: string) {
+    return httpRequest<SessionTokens>(routes.AUTH_REFRESH, {
+      method: 'POST', body: { refreshToken }, noStore: true, omitAuth: true,
     });
   }
 
-  verifyOtp(payload: OtpVerifyPayload): Promise<AuthSession> {
-    return httpRequest<AuthSession>(API_ENDPOINTS.AUTH_OTP_VERIFY, {
-      method: 'POST',
-      body: payload,
-      noStore: true,
-      omitAuth: true,
+  discoverArtists({ q, cursor, limit, signal }: DiscoverArtistsParams = {}) {
+    return httpRequest<DiscoveryArtistsResponse>(routes.ARTISTS_DISCOVERY, {
+      query: { q, cursor, limit }, signal, omitAuth: true,
     });
   }
 
-  discoverArtists(params: DiscoverArtistsParams = {}): Promise<DiscoveryArtistsResponse> {
-    return httpRequest<DiscoveryArtistsResponse>(API_ENDPOINTS.ARTISTS_DISCOVERY, {
-      method: 'GET',
-      query: {
-        q: params.q,
-        cursor: params.cursor,
-        limit: params.limit,
-      },
-      signal: params.signal,
+  getPublicStorefront({ handle, cursor, limit, displayCurrency, noStore, signal }: GetStorefrontParams) {
+    return httpRequest<StorefrontDetail>(routes.STOREFRONT_PUBLIC(normalizeHandle(handle)), {
+      query: { cursor, limit, displayCurrency }, signal, noStore, omitAuth: true,
     });
   }
 
-  getPublicStorefront(params: GetStorefrontParams): Promise<StorefrontDetail> {
-    const cleanHandle = normalizeHandle(params.handle);
-    return httpRequest<StorefrontDetail>(API_ENDPOINTS.STOREFRONT_PUBLIC(cleanHandle), {
-      method: 'GET',
-      query: {
-        cursor: params.cursor,
-        limit: params.limit,
-      },
-      signal: params.signal,
-    });
+  createStorefront(body: StorefrontCreateRequest) {
+    return httpRequest<ArtistSummary>(routes.STOREFRONTS_CREATE, { method: 'POST', body });
   }
 
-  initiateCheckout(params: CheckoutInitiateParams): Promise<CheckoutTransaction> {
-    return httpRequest<CheckoutTransaction>(API_ENDPOINTS.CHECKOUT_INITIATE, {
-      method: 'POST',
-      body: params.request,
-      headers: {
-        'Idempotency-Key': params.idempotencyKey,
-      },
-      noStore: true,
-    });
+  updateStorefront(id: string, body: StorefrontUpdateRequest) {
+    return httpRequest<ArtistSummary>(routes.STOREFRONTS_UPDATE(id), { method: 'PATCH', body });
   }
 
-  getCheckoutStatus(
-    transactionId: string,
-    guestSessionToken?: string,
-    signal?: AbortSignal,
-  ): Promise<CheckoutTransaction> {
-    const headers: Record<string, string> = {};
-    if (guestSessionToken) {
-      headers['X-Checkout-Token'] = guestSessionToken;
+  uploadProfileImage(id: string, body: File) {
+    return httpRequest<ArtistSummary>(routes.STOREFRONT_PROFILE_IMAGE(id), { method: 'PUT', body });
+  }
+
+  removeProfileImage(id: string) {
+    return httpRequest<ArtistSummary>(routes.STOREFRONT_PROFILE_IMAGE(id), { method: 'DELETE' });
+  }
+
+  createProduct(storefrontId: string, { typeCode, description, videoFile, audioFile, videoPreviewFile }: ProductCreateRequest) {
+    let body: FormData | { typeCode: string; description?: string } = { typeCode, description };
+    if (videoFile || audioFile || videoPreviewFile) {
+      body = new FormData();
+      body.append('typeCode', typeCode);
+      if (description !== undefined) body.append('description', description);
+      if (videoFile) body.append('videoFile', videoFile);
+      if (videoPreviewFile) body.append('videoPreviewFile', videoPreviewFile);
+      if (audioFile) body.append('audioFile', audioFile);
     }
-
-    return httpRequest<CheckoutTransaction>(
-      API_ENDPOINTS.CHECKOUT_STATUS(transactionId),
-      {
-        method: 'GET',
-        headers,
-        signal,
-        noStore: true,
-        omitAuth: Boolean(guestSessionToken),
-      },
-    );
+    return httpRequest<CreatedProduct>(routes.STOREFRONT_PRODUCTS_CREATE(storefrontId), {
+      method: 'POST', body, timeoutMs: 120_000,
+    });
   }
 
-  getSplitInvitation(
-    inviteId: string,
-    inviteToken: string,
-  ): Promise<SplitInvitationDetail> {
-    return httpRequest<SplitInvitationDetail>(
-      API_ENDPOINTS.SPLIT_INVITE_DECISION(inviteId),
-      {
-        method: 'GET',
-        headers: {
-          'X-Invite-Token': inviteToken,
-        },
-        noStore: true,
-      },
-    );
+  replacePrices(productId: string, body: PriceReplacement) {
+    return httpRequest<ProductPricesResponse>(routes.PRODUCT_PRICES_PUT(productId), { method: 'PUT', body });
   }
 
-  respondToSplitInvitation(
-    inviteId: string,
-    inviteToken: string,
-    decision: 'ACCEPT' | 'REJECT',
-  ): Promise<SplitInvitationDetail> {
-    return httpRequest<SplitInvitationDetail>(
-      API_ENDPOINTS.SPLIT_INVITE_DECISION(inviteId),
-      {
-        method: 'POST',
-        body: { decision },
-        headers: {
-          'X-Invite-Token': inviteToken,
-        },
-        noStore: true,
-      },
-    );
+  getProductMedia(productId: string, kind: 'audio' | 'video', { range, signal }: MediaOptions = {}) {
+    return httpMediaRequest(routes.PRODUCT_MEDIA(productId, kind), {
+      headers: range ? { Range: range } : undefined, signal,
+      omitAuth: kind === 'audio', noStore: kind === 'video', timeoutMs: 60_000,
+    });
+  }
+
+  getActiveSplit(productId: string, signal?: AbortSignal) {
+    return httpRequest<SplitCreateResponse | null>(routes.PRODUCT_SPLITS(productId), { signal, noStore: true });
+  }
+
+  createSplit(productId: string, body: SplitCreateRequest, idempotencyKey: string) {
+    return httpRequest<SplitCreateResponse>(routes.PRODUCT_SPLITS(productId), {
+      method: 'POST', body, headers: { 'Idempotency-Key': idempotencyKey }, noStore: true,
+    });
+  }
+
+  initiateCheckout({ request, idempotencyKey }: CheckoutInitiateParams) {
+    return httpRequest<CheckoutTransaction>(routes.CHECKOUT_INITIATE, {
+      method: 'POST', body: request, headers: { 'Idempotency-Key': idempotencyKey }, noStore: true,
+    });
+  }
+
+  getCheckoutStatus(id: string, guestSessionToken?: string, signal?: AbortSignal) {
+    return httpRequest<CheckoutTransaction>(routes.CHECKOUT_STATUS(id), {
+      headers: guestSessionToken ? { 'X-Checkout-Token': guestSessionToken } : undefined,
+      signal, noStore: true, omitAuth: Boolean(guestSessionToken),
+    });
+  }
+
+  getSplitInvitation(id: string, inviteToken: string, signal?: AbortSignal) {
+    return httpRequest<SplitInvitationDetail>(routes.SPLIT_INVITE_DECISION(id), {
+      headers: { 'X-Invite-Token': inviteToken }, signal, noStore: true, omitAuth: true,
+    });
+  }
+
+  respondToSplitInvitation(id: string, inviteToken: string, decision: SplitDecision, session: VerifiedCollaboratorSession) {
+    return httpRequest<SplitInvitationDetail>(routes.SPLIT_INVITE_DECISION(id), {
+      method: 'POST', body: { decision }, noStore: true, omitAuth: true,
+      headers: { 'X-Invite-Token': inviteToken, Authorization: `Bearer ${session.accessToken}` },
+    });
   }
 }

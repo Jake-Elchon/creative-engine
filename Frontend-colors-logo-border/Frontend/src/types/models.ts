@@ -1,21 +1,15 @@
 export type SupportedCurrency = 'XAF' | 'EUR' | 'USD';
-
 export type PaymentRailOption = 'auto' | 'mtn' | 'orange';
 export type ResolvedPaymentRail = 'mtn' | 'orange';
-
-export type ProductType = 'MUSIC' | 'VIDEO' | 'EBOOK' | 'TIP' | 'SHOUTOUT';
+export type ProductTypeCode = 'release' | 'video' | 'ebook' | 'tip' | 'shoutout';
 
 export interface ArtistSummary {
   storefrontId: string;
   handle: string;
   displayName: string;
-  bio: string;
+  bio: string | null;
   storefrontUrl: string;
-  genre?: string;
-  city?: string;
-  avatarUrl?: string;
-  coverUrl?: string;
-  accentTone?: 'terracotta' | 'gold' | 'forest' | 'indigo';
+  profileImageUrl?: string | null;
 }
 
 export interface DiscoveryArtistsResponse {
@@ -23,44 +17,106 @@ export interface DiscoveryArtistsResponse {
   nextCursor: string | null;
 }
 
+export interface StorefrontCreateRequest {
+  handle: string;
+  displayName: string;
+  bio?: string;
+}
+
+export interface StorefrontUpdateRequest {
+  displayName?: string;
+  bio?: string | null;
+}
+
+export interface ProductType {
+  id: string;
+  code: ProductTypeCode;
+  name: string;
+}
+
 export interface ProductPrice {
-  currency: SupportedCurrency;
-  amount: number;
-  isDisplayOnly: boolean;
+  priceId: string;
+  currencyCode: SupportedCurrency;
+  amountMinor: number;
 }
 
 export interface StorefrontProduct {
   productId: string;
-  title: string;
-  description: string;
+  description: string | null;
   type: ProductType;
-  coverUrl?: string;
-  previewAvailable: boolean;
-  previewDurationSeconds?: number;
-  xafPrice: number;
-  displayPrices?: ProductPrice[];
-  splitsComplete: boolean;
-  isMockDemo?: boolean;
+  previewUrl: string | null;
+  videoPreviewUrl?: string | null;
+  prices: ProductPrice[];
+  displayCurrency: SupportedCurrency;
+  checkoutAvailable: boolean;
 }
 
 export interface StorefrontDetail {
-  artist: ArtistSummary;
+  storefront: ArtistSummary;
   products: StorefrontProduct[];
   nextCursor: string | null;
 }
 
-export type SplitInvitationStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
+export interface ProductCreateRequest {
+  typeCode: ProductTypeCode;
+  description?: string;
+  videoFile?: File;
+  videoPreviewFile?: File;
+  audioFile?: File;
+}
+
+export interface CreatedProduct {
+  productId: string;
+  storefrontId: string;
+  description: string | null;
+  type: ProductType;
+  videoUrl: string | null;
+  videoPreviewUrl?: string | null;
+  audioUrl: string | null;
+}
+
+export interface PriceReplacement {
+  local: { currencyCode: 'XAF'; amountMinor: number };
+  diaspora?: { currencyCode: 'EUR' | 'USD'; amountMinor: number } | null;
+}
+
+export interface ProductPricesResponse {
+  productId: string;
+  prices: ProductPrice[];
+}
+
+export type SplitInvitationStatus = 'PENDING' | 'ACCEPTED' | 'REJECTED';
+export type SplitStatus = SplitInvitationStatus | 'EXPIRED';
+export type SplitDecision = 'accept' | 'reject';
+
+export interface SplitShare {
+  phone: string;
+  shareBps: number;
+}
+
+export interface SplitCreateRequest {
+  splits: SplitShare[];
+  groupId?: string;
+}
+
+export interface SplitCreateResponse {
+  splitId: string;
+  productId: string;
+  groupId: string | null;
+  completed: boolean;
+  invitations: (SplitShare & {
+    inviteId: string;
+    status: SplitStatus;
+    collaboratorId: string | null;
+  })[];
+}
 
 export interface SplitInvitationDetail {
   inviteId: string;
-  productTitle: string;
-  creatorDisplayName: string;
-  collaboratorName: string;
-  sharePercentage: number;
+  splitId: string;
+  productId: string;
+  shareBps: number;
   status: SplitInvitationStatus;
-  expiresAt: string;
-  requiresPhoneVerification: boolean;
-  isMockDemo?: boolean;
 }
 
 export type CheckoutStatus = 'PENDING' | 'SUCCESS' | 'FAILED';

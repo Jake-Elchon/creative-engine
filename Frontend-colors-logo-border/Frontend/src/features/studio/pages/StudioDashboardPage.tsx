@@ -37,7 +37,6 @@ export function StudioDashboardPage() {
             <h2>{t.studio.productsTitle}</h2>
             <p>{t.studio.productsEntryDescription}</p>
           </div>
-          <span className="studio-workspace-row__status">{t.studio.notConfigured}</span>
           <ArrowRight className="studio-workspace-row__arrow" size={18} />
         </Link>
 
@@ -49,7 +48,6 @@ export function StudioDashboardPage() {
             <h2>{t.studio.collaborationsTitle}</h2>
             <p>{t.studio.collaborationsEntryDescription}</p>
           </div>
-          <span className="studio-workspace-row__status">{t.studio.notConfigured}</span>
           <ArrowRight className="studio-workspace-row__arrow" size={18} />
         </Link>
       </section>

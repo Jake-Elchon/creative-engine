@@ -1,401 +1,263 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Search, Sparkles, WifiOff, ServerCrash, X, ArrowUpRight } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Search, ServerCrash, WifiOff, X } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { useLanguage } from '@/app/providers/LanguageProvider';
-import { MediaContainer } from '@/components/media/MediaContainer';
-import { Badge } from '@/components/ui/Badge/Badge';
+import { ZibiMark } from '@/components/brand/ZibiLogo';
 import { Button } from '@/components/ui/Button/Button';
 import { EmptyState } from '@/components/ui/EmptyState/EmptyState';
 import { ErrorState } from '@/components/ui/ErrorState/ErrorState';
 import { Input } from '@/components/ui/Input/Input';
 import { Skeleton } from '@/components/ui/Skeleton/Skeleton';
-import { ArtistCard } from '@/features/discovery/components/ArtistCard';
 import { useDebounce } from '@/hooks/useDebounce';
 import { apiClient } from '@/services/api';
 import { ApiClientError } from '@/types/api';
 import type { ArtistSummary } from '@/types/models';
-import { MAX_SEARCH_QUERY_LENGTH, validateSearchQuery } from '@/utils/validation';
+import { validateSearchQuery } from '@/utils/validation';
+import { selectEditorialArtists } from '../artists';
+import { ArtistCard } from '../components/ArtistCard';
+import { UpcomingCarousel } from '../components/UpcomingCarousel';
 import './DiscoveryPage.css';
 
-function mergeUniqueArtists(
-  existing: ArtistSummary[],
-  incoming: ArtistSummary[],
-): ArtistSummary[] {
-  const seen = new Set(existing.map((a) => a.storefrontId));
-  const next = [...existing];
-  for (const item of incoming) {
-    if (!seen.has(item.storefrontId)) {
-      seen.add(item.storefrontId);
-      next.push(item);
-    }
-  }
-  return next;
+function searchTerm(value: string) {
+  return value.replace(/^@(?=\S)/, '') || undefined;
 }
 
 export function DiscoveryPage() {
   const { t, formatMessage } = useLanguage();
-  const { homeSeed, clearHomeSeed } = useAuth();
-
-  const [searchInput, setSearchInput] = useState('');
+  const { homeSeed } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchInput = searchParams.get('q') ?? '';
   const debouncedSearch = useDebounce(searchInput, 300);
+  const query = validateSearchQuery(searchInput);
+  const debouncedQuery = validateSearchQuery(debouncedSearch);
 
   const [artists, setArtists] = useState<ArtistSummary[]>([]);
+  const [editorialPool, setEditorialPool] = useState<ArtistSummary[]>([]);
+  const [editorialDay] = useState(() => Math.floor(Date.now() / 86_400_000));
   const [nextCursor, setNextCursor] = useState<string | null>(null);
+  const [resolvedQuery, setResolvedQuery] = useState<string | null>(null);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
-
   const [initialError, setInitialError] = useState<ApiClientError | null>(null);
-  const [paginationError, setPaginationError] = useState<string | null>(null);
+  const [paginationError, setPaginationError] = useState(false);
   const [seedUnavailable, setSeedUnavailable] = useState(false);
+  const requestSeq = useRef(0);
+  const initialRequest = useRef<AbortController | null>(null);
+  const pageRequest = useRef<AbortController | null>(null);
+  const ignoredSeed = useRef<typeof homeSeed>(null);
 
-  const requestSeqRef = useRef(0);
-  const activeAbortRef = useRef<AbortController | null>(null);
-
-  const queryValidation = validateSearchQuery(searchInput);
-  const debouncedValidation = validateSearchQuery(debouncedSearch);
-
-  const fetchInitial = useCallback(
-    async (queryText: string, limitOverride?: number) => {
-      const validation = validateSearchQuery(queryText);
-      if (validation.isTooLong) {
-        return;
-      }
-
-      activeAbortRef.current?.abort();
-      const controller = new AbortController();
-      activeAbortRef.current = controller;
-      const reqId = ++requestSeqRef.current;
-
-      setIsInitialLoading(true);
-      setInitialError(null);
-      setPaginationError(null);
-      setSeedUnavailable(false);
-
-      try {
-        const res = await apiClient.discoverArtists({
-          q: validation.isEmpty ? undefined : validation.trimmed,
-          limit: limitOverride ?? 20,
-          signal: controller.signal,
-        });
-
-        if (reqId !== requestSeqRef.current) return;
-
-        setArtists(res.items);
-        setNextCursor(res.nextCursor);
-      } catch (err) {
-        if (err instanceof DOMException && err.name === 'AbortError') return;
-        if (reqId !== requestSeqRef.current) return;
-
-        if (err instanceof ApiClientError) {
-          setInitialError(err);
-        } else {
-          setInitialError(
-            new ApiClientError({
-              message: t.discovery.initialErrorServer,
-              code: 'UNKNOWN',
-              status: 500,
-              kind: 'SERVER_ERROR',
-              isRetryable: true,
-            }),
-          );
-        }
-      } finally {
-        if (reqId === requestSeqRef.current) {
-          setIsInitialLoading(false);
-        }
-      }
-    },
-    [t.discovery.initialErrorServer],
-  );
-
-  // Initial load & search changes, respecting OTP home seed when no search query is active
-  useEffect(() => {
-    if (debouncedValidation.isTooLong) {
-      return;
-    }
-
-    if (debouncedValidation.isEmpty && homeSeed) {
-      if (homeSeed.status === 'ready') {
-        setArtists(homeSeed.artists);
-        setNextCursor(homeSeed.nextCursor);
-        setIsInitialLoading(false);
-        setInitialError(null);
-        setSeedUnavailable(false);
-        return;
-      }
-
-      if (homeSeed.status === 'unavailable') {
-        setArtists([]);
-        setNextCursor(null);
-        setIsInitialLoading(false);
-        setSeedUnavailable(true);
-        return;
-      }
-    }
-
-    void fetchInitial(debouncedValidation.trimmed);
-
-    return () => {
-      activeAbortRef.current?.abort();
-    };
-  }, [
-    debouncedValidation.isEmpty,
-    debouncedValidation.isTooLong,
-    debouncedValidation.trimmed,
-    fetchInitial,
-    homeSeed,
-  ]);
-
-  const handleLoadMore = async () => {
-    if (!nextCursor || isLoadingMore || isInitialLoading) return;
-
-    setIsLoadingMore(true);
-    setPaginationError(null);
+  const fetchInitial = useCallback(async (term: string, limit = 20) => {
+    initialRequest.current?.abort();
+    pageRequest.current?.abort();
+    const controller = new AbortController();
+    initialRequest.current = controller;
+    const requestId = ++requestSeq.current;
+    setIsInitialLoading(true);
+    setIsLoadingMore(false);
+    setInitialError(null);
+    setPaginationError(false);
+    setSeedUnavailable(false);
 
     try {
-      const res = await apiClient.discoverArtists({
-        q: debouncedValidation.isEmpty ? undefined : debouncedValidation.trimmed,
-        cursor: nextCursor,
-        limit: 20,
-      });
-
-      setArtists((prev) => mergeUniqueArtists(prev, res.items));
-      setNextCursor(res.nextCursor);
-    } catch {
-      setPaginationError(t.discovery.paginationError);
+      const result = await apiClient.discoverArtists({ q: searchTerm(term), limit, signal: controller.signal });
+      if (controller.signal.aborted || requestId !== requestSeq.current) return;
+      setArtists(result.items);
+      if (!term) setEditorialPool(result.items);
+      setNextCursor(result.nextCursor);
+    } catch (error) {
+      if (controller.signal.aborted || requestId !== requestSeq.current) return;
+      setInitialError(error instanceof ApiClientError ? error : new ApiClientError({
+        message: '', code: 'UNKNOWN', status: 500, kind: 'SERVER_ERROR', isRetryable: true,
+      }));
     } finally {
-      setIsLoadingMore(false);
+      if (!controller.signal.aborted && requestId === requestSeq.current) {
+        setResolvedQuery(term);
+        setIsInitialLoading(false);
+      }
     }
-  };
+  }, []);
 
-  const handleSeedRetry = () => {
-    clearHomeSeed();
+  useEffect(() => {
+    if (debouncedQuery.isTooLong) return;
+
+    if (debouncedQuery.isEmpty && homeSeed && homeSeed !== ignoredSeed.current) {
+      const seedArtists = homeSeed.status === 'ready' ? homeSeed.artists : [];
+      setArtists(seedArtists);
+      setEditorialPool(seedArtists);
+      setNextCursor(homeSeed.status === 'ready' ? homeSeed.nextCursor : null);
+      setResolvedQuery('');
+      setIsInitialLoading(false);
+      setInitialError(null);
+      setPaginationError(false);
+      setSeedUnavailable(homeSeed.status === 'unavailable');
+    } else {
+      void fetchInitial(debouncedQuery.trimmed);
+    }
+
+    return () => {
+      initialRequest.current?.abort();
+      pageRequest.current?.abort();
+    };
+  }, [debouncedQuery.isEmpty, debouncedQuery.isTooLong, debouncedQuery.trimmed, fetchInitial, homeSeed]);
+
+  const directoryLoading = isInitialLoading || resolvedQuery !== query.trimmed;
+  const showEditorial = query.isEmpty && (directoryLoading || (!initialError && !seedUnavailable));
+  const editorial = selectEditorialArtists(editorialPool, editorialDay);
+
+  function updateSearch(value: string) {
+    if (value.trim() !== query.trimmed) pageRequest.current?.abort();
+    const params = new URLSearchParams(searchParams);
+    if (value) params.set('q', value);
+    else params.delete('q');
+    setSearchParams(params, { replace: true });
+  }
+
+  async function handleLoadMore() {
+    if (!nextCursor || isLoadingMore || directoryLoading || query.isTooLong) return;
+    const controller = new AbortController();
+    pageRequest.current = controller;
+    const requestId = requestSeq.current;
+    setIsLoadingMore(true);
+    setPaginationError(false);
+
+    try {
+      const result = await apiClient.discoverArtists({
+        q: searchTerm(query.trimmed), cursor: nextCursor, limit: 20, signal: controller.signal,
+      });
+      if (controller.signal.aborted || requestId !== requestSeq.current) return;
+      setArtists((previous) => [...new Map([...previous, ...result.items].map((artist) => [artist.storefrontId, artist])).values()]);
+      setNextCursor(result.nextCursor);
+    } catch {
+      if (!controller.signal.aborted && requestId === requestSeq.current) setPaginationError(true);
+    } finally {
+      if (pageRequest.current === controller) setIsLoadingMore(false);
+    }
+  }
+
+  function retrySeed() {
+    ignoredSeed.current = homeSeed;
     void fetchInitial('', 6);
-  };
+  }
 
-  const spotlightArtist = artists[0];
+  const networkError = initialError?.kind === 'NETWORK_ERROR' || initialError?.kind === 'TIMEOUT_ERROR';
 
   return (
-    <>
-      <section className="zibi-hero">
-        <div className="zibi-hero__glow" aria-hidden="true" />
-        <div className="zibi-container zibi-hero__grid">
-          <div className="zibi-hero__content">
-            <Badge variant="gold" className="zibi-hero__eyebrow">
-              <Sparkles size={12} />
-              {t.discovery.eyebrow}
-            </Badge>
-
-            <h1 className="zibi-hero__title">
-              {t.discovery.heroTitle}
-            </h1>
-            <p className="zibi-hero__subtitle">{t.discovery.heroSubtitle}</p>
-
-            <div className="zibi-hero__search-wrap">
-              <label className="zibi-hero__search-label" htmlFor="zibi-artist-search">
-                {t.discovery.searchLabel}
-              </label>
-              <div className="zibi-hero__search">
-                <Input
-                  id="zibi-artist-search"
-                  type="search"
-                  value={searchInput}
-                  onChange={(e) => {
-                    const val = e.target.value;
-                    setSearchInput(val);
-                    if (val.trim().length > 0 && homeSeed) {
-                      // User actively searched; reset cursor before debounced fetch
-                      setNextCursor(null);
-                    }
-                  }}
-                  placeholder={t.discovery.searchPlaceholder}
-                  aria-label={t.discovery.searchAriaLabel}
-                  leftIcon={<Search size={18} />}
-                  error={queryValidation.isTooLong ? t.discovery.queryTooLong : undefined}
-                  hint={
-                    searchInput.length > 0
-                      ? formatMessage(t.discovery.charLimitHint, {
-                          count: searchInput.length,
-                        })
-                      : undefined
-                  }
-                  rightSlot={
-                    searchInput.length > 0 ? (
-                      <button
-                        type="button"
-                        onClick={() => setSearchInput('')}
-                        aria-label={t.discovery.clearSearch}
-                        className="zibi-hero__search-clear"
-                      >
-                        <X size={16} />
-                      </button>
-                    ) : null
-                  }
-                />
-              </div>
-              {searchInput.length > MAX_SEARCH_QUERY_LENGTH && (
-                <span className="sr-only">{t.discovery.queryTooLong}</span>
-              )}
+    <div className="zibi-discovery">
+      <section className="zibi-discovery-hero" aria-labelledby="discover-the-sound">
+        <div className="zibi-container zibi-discovery-hero__grid">
+          <div className="zibi-discovery-hero__copy">
+            <h1 id="discover-the-sound">{t.discovery.heroTitle}</h1>
+            <p>{t.discovery.heroSubtitle}</p>
+            <div className="zibi-discovery-hero__search">
+              <Input
+                id="zibi-artist-search"
+                label={t.discovery.searchLabel}
+                type="search"
+                value={searchInput}
+                onChange={(event) => updateSearch(event.target.value)}
+                placeholder={t.discovery.searchPlaceholder}
+                leftIcon={<Search size={20} aria-hidden="true" />}
+                error={query.isTooLong ? t.discovery.queryTooLong : undefined}
+                rightSlot={searchInput && (
+                  <button type="button" onClick={() => updateSearch('')} aria-label={t.discovery.clearSearch}>
+                    <X size={18} aria-hidden="true" />
+                  </button>
+                )}
+              />
             </div>
           </div>
-
-          <div className="zibi-hero__spotlight">
-            {spotlightArtist ? (
-              <Link
-                to={`/@${spotlightArtist.handle}`}
-                className="zibi-hero__spotlight-link"
-                aria-label={`${t.common.viewStorefront}: ${spotlightArtist.displayName}`}
-              >
-                <div className="zibi-hero__spotlight-media">
-                  <MediaContainer
-                    src={spotlightArtist.coverUrl || spotlightArtist.avatarUrl}
-                    alt={`${spotlightArtist.displayName} creator portrait or cover`}
-                    aspectRatio="16x9"
-                    accentTone={spotlightArtist.accentTone || 'terracotta'}
-                    monogram={spotlightArtist.displayName}
-                    priority
-                  />
-                  <span className="zibi-hero__spotlight-index">01</span>
-                </div>
-
-                <div className="zibi-hero__spotlight-label">
-                  <span>{t.discovery.featuredLabel}</span>
-                  {spotlightArtist.city && (
-                    <span className="zibi-hero__spotlight-location">
-                      {spotlightArtist.city}
-                    </span>
-                  )}
-                </div>
-
-                <div className="zibi-hero__spotlight-identity">
-                  <div>
-                    <strong>{spotlightArtist.displayName}</strong>
-                    <span>@{spotlightArtist.handle}</span>
-                  </div>
-                  <span className="zibi-hero__spotlight-arrow" aria-hidden="true">
-                    <ArrowUpRight size={19} />
-                  </span>
-                </div>
-
-                {spotlightArtist.genre && (
-                  <span className="zibi-hero__spotlight-genre">
-                    {spotlightArtist.genre}
-                  </span>
-                )}
-              </Link>
-            ) : (
-              <div className="zibi-hero__spotlight-fallback">
-                <div className="zibi-hero__spotlight-label">
-                  <span>{t.discovery.featuredLabel}</span>
-                </div>
-                <MediaContainer
-                  alt="Zibi Featured Cameroonian Artistry"
-                  aspectRatio="16x9"
-                  accentTone="gold"
-                  monogram="ZB"
-                  priority
-                />
-              </div>
-            )}
+          <div className="zibi-discovery-hero__motif" aria-hidden="true">
+            <ZibiMark size={172} decorative />
           </div>
         </div>
       </section>
 
-      <hr className="cultural-divider" />
+      {showEditorial && (
+        <>
+          <section className="zibi-explore-section zibi-explore-section--upcoming" aria-labelledby="upcoming-artists">
+            <div className="zibi-container">
+              <div className="zibi-explore-heading">
+                <h2 id="upcoming-artists">{t.discovery.upcomingTitle}</h2>
+                <p>{t.discovery.upcomingSubtitle}</p>
+              </div>
+              {directoryLoading ? (
+                <div className="zibi-explore-feature-loading" role="status">
+                  <span className="sr-only">{t.common.loading}</span>
+                  <Skeleton height="100%" />
+                </div>
+              ) : <UpcomingCarousel artists={editorial.upcoming} />}
+            </div>
+          </section>
 
-      <section className="zibi-discovery-section">
+          <section className="zibi-explore-section zibi-explore-section--popular" aria-labelledby="popular-artists">
+            <div className="zibi-container">
+              <div className="zibi-explore-heading">
+                <h2 id="popular-artists">{t.discovery.popularTitle}</h2>
+                <p>{t.discovery.popularSubtitle}</p>
+              </div>
+              {directoryLoading ? (
+                <div className="zibi-explore-popular-grid" aria-busy="true">
+                  <Skeleton height="90px" />
+                  <Skeleton height="90px" />
+                </div>
+              ) : editorial.popular.length ? (
+                <div className="zibi-explore-popular-grid">
+                  {editorial.popular.map((artist) => <ArtistCard key={artist.storefrontId} artist={artist} compact />)}
+                </div>
+              ) : <p className="zibi-explore-note">{t.discovery.popularEmpty}</p>}
+            </div>
+          </section>
+        </>
+      )}
+
+      <section id="all-artists" className="zibi-explore-section zibi-explore-section--directory" aria-labelledby="directory-heading">
         <div className="zibi-container">
-          <div className="zibi-discovery-header">
+          <div className="zibi-explore-heading zibi-explore-heading--directory">
             <div>
-              <h2>{t.discovery.sectionTitle}</h2>
+              <h2 id="directory-heading">{t.discovery.sectionTitle}</h2>
               <p>{t.discovery.sectionSubtitle}</p>
             </div>
-            {!isInitialLoading && !initialError && !seedUnavailable && artists.length > 0 && (
-              <span className="zibi-discovery-results">
-                {formatMessage(t.discovery.resultsCount, { count: artists.length })}
-              </span>
+            {!query.isTooLong && !directoryLoading && !initialError && !seedUnavailable && artists.length > 0 && (
+              <span className="zibi-explore-count">{formatMessage(t.discovery.resultsCount, { count: artists.length })}</span>
             )}
           </div>
-
-          {seedUnavailable ? (
-            <ErrorState
-              title={t.discovery.seedUnavailableTitle}
-              subtitle={t.discovery.seedUnavailableSubtitle}
-              onRetry={handleSeedRetry}
-            />
-          ) : isInitialLoading ? (
+          {query.isTooLong ? (
+            <EmptyState title={t.discovery.queryTooLong} />
+          ) : directoryLoading ? (
             <div className="zibi-artist-grid" aria-busy="true">
-              {Array.from({ length: 4 }).map((_, idx) => (
-                <div
-                  key={idx}
-                  className="zibi-discovery-loading-card"
-                >
-                  <Skeleton height="360px" />
-                  <Skeleton width="65%" height="24px" />
-                  <Skeleton width="40%" height="14px" />
-                  <Skeleton width="100%" height="36px" />
+              {Array.from({ length: 4 }, (_, index) => (
+                <div key={index} className="zibi-explore-directory-loading">
+                  <Skeleton height="180px" />
+                  <Skeleton height="26px" width="60%" />
+                  <Skeleton height="16px" width="40%" />
                 </div>
               ))}
             </div>
+          ) : seedUnavailable ? (
+            <ErrorState title={t.discovery.seedUnavailableTitle} subtitle={t.discovery.seedUnavailableSubtitle} onRetry={retrySeed} />
           ) : initialError ? (
             <ErrorState
-              title={
-                initialError.kind === 'NETWORK_ERROR' || initialError.kind === 'TIMEOUT_ERROR'
-                  ? t.discovery.initialErrorNetwork
-                  : t.discovery.initialErrorServer
-              }
-              subtitle={initialError.message}
-              icon={
-                initialError.kind === 'NETWORK_ERROR' || initialError.kind === 'TIMEOUT_ERROR' ? (
-                  <WifiOff size={24} />
-                ) : (
-                  <ServerCrash size={24} />
-                )
-              }
-              onRetry={
-                initialError.isRetryable
-                  ? () => void fetchInitial(debouncedValidation.trimmed)
-                  : undefined
-              }
+              title={networkError ? t.discovery.initialErrorNetwork : t.discovery.initialErrorServer}
+              icon={networkError ? <WifiOff size={24} /> : <ServerCrash size={24} />}
+              onRetry={initialError.isRetryable ? () => void fetchInitial(query.trimmed) : undefined}
             />
           ) : artists.length === 0 ? (
             <EmptyState
-              title={t.discovery.emptyTitle}
-              subtitle={t.discovery.emptySubtitle}
-              action={
-                searchInput.length > 0 ? (
-                  <Button variant="secondary" onClick={() => setSearchInput('')}>
-                    {t.discovery.clearSearch}
-                  </Button>
-                ) : undefined
-              }
+              title={query.isEmpty ? t.discovery.directoryEmpty : t.discovery.emptyTitle}
+              subtitle={query.isEmpty ? undefined : t.discovery.emptySubtitle}
+              action={query.isEmpty ? undefined : <Button variant="secondary" onClick={() => updateSearch('')}>{t.discovery.clearSearch}</Button>}
             />
           ) : (
             <>
               <div className="zibi-artist-grid">
-                {artists.map((artist, index) => (
-                  <ArtistCard
-                    key={artist.storefrontId}
-                    artist={artist}
-                    index={index}
-                  />
-                ))}
+                {artists.map((artist) => <ArtistCard key={artist.storefrontId} artist={artist} />)}
               </div>
-
               {(nextCursor || paginationError) && (
-                <div className="zibi-pagination-area">
-                  {paginationError && (
-                    <p style={{ color: 'var(--state-error)', fontSize: 'var(--text-sm)' }}>
-                      {paginationError}
-                    </p>
-                  )}
+                <div className="zibi-explore-pagination">
+                  {paginationError && <p role="alert">{t.discovery.paginationError}</p>}
                   {nextCursor && (
-                    <Button
-                      variant="secondary"
-                      onClick={handleLoadMore}
-                      isLoading={isLoadingMore}
-                    >
+                    <Button variant="secondary" onClick={() => void handleLoadMore()} isLoading={isLoadingMore}>
                       {isLoadingMore ? t.common.loadingMore : t.common.loadMore}
                     </Button>
                   )}
@@ -405,6 +267,6 @@ export function DiscoveryPage() {
           )}
         </div>
       </section>
-    </>
+    </div>
   );
 }

@@ -1,4 +1,4 @@
-import type { InputHTMLAttributes, ReactNode } from 'react';
+import { useId, type InputHTMLAttributes, type ReactNode } from 'react';
 import './Input.css';
 
 export interface InputProps extends InputHTMLAttributes<HTMLInputElement> {
@@ -21,6 +21,9 @@ export function Input({
 }: InputProps) {
   const inputId = id || (label ? `input-${label.toLowerCase().replace(/\s+/g, '-')}` : undefined);
 
+  const feedbackId = useId();
+  const descriptions = [rest['aria-describedby'], error || hint ? feedbackId : undefined].filter(Boolean).join(' ');
+
   return (
     <div className={`zibi-field ${className}`}>
       {label && (
@@ -39,15 +42,16 @@ export function Input({
           className="zibi-field__input"
           aria-invalid={Boolean(error)}
           {...rest}
+          aria-describedby={descriptions || undefined}
         />
         {rightSlot && <div className="zibi-field__suffix">{rightSlot}</div>}
       </div>
       {error ? (
-        <p className="zibi-field__error" role="alert">
+        <p id={feedbackId} className="zibi-field__error" role="alert">
           {error}
         </p>
       ) : hint ? (
-        <p className="zibi-field__hint">{hint}</p>
+        <p id={feedbackId} className="zibi-field__hint">{hint}</p>
       ) : null}
     </div>
   );

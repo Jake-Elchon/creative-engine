@@ -5,12 +5,14 @@ import { useLanguage } from '@/app/providers/LanguageProvider';
 interface StudioHeaderProps {
   creatorName?: string;
   onOpenMenu: () => void;
+  menuOpen: boolean;
   onSignOut: () => void;
 }
 
 export function StudioHeader({
   creatorName,
   onOpenMenu,
+  menuOpen,
   onSignOut,
 }: StudioHeaderProps) {
   const { t } = useLanguage();
@@ -34,6 +36,7 @@ export function StudioHeader({
           onClick={onOpenMenu}
           aria-label={t.studio.openNavigation}
           aria-controls="studio-mobile-navigation"
+          aria-expanded={menuOpen}
         >
           <Menu size={21} />
         </button>
@@ -52,7 +55,7 @@ export function StudioHeader({
             <span className="studio-account__name">{creatorName}</span>
           </div>
         )}
-        <button type="button" className="studio-logout" onClick={onSignOut}>
+        <button type="button" className="studio-logout" aria-label={t.nav.signOut} onClick={onSignOut}>
           <LogOut size={16} aria-hidden="true" />
           <span>{t.nav.signOut}</span>
         </button>

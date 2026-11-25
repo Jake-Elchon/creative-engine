@@ -10,7 +10,7 @@ export interface PaymentPendingProps {
   transaction: CheckoutTransaction;
   statusError: string | null;
   isRefreshing: boolean;
-  onRefresh: () => void;
+  onRefresh?: () => void;
 }
 
 export function PaymentPending({
@@ -90,7 +90,7 @@ export function PaymentPending({
         </span>
       </div>
 
-      <Button
+      {onRefresh && <Button
         type="button"
         variant="secondary"
         fullWidth
@@ -99,7 +99,7 @@ export function PaymentPending({
         leftIcon={<RefreshCw size={14} />}
       >
         {t.checkout.refreshStatus}
-      </Button>
+      </Button>}
     </div>
   );
 }

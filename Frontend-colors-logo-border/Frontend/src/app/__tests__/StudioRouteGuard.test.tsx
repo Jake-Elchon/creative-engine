@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 import { AuthProvider, useAuth } from '@/app/providers/AuthProvider';
 import { StudioRouteGuard } from '@/app/guards/StudioRouteGuard';
@@ -56,6 +56,7 @@ function TestRoutes({
       </button>
       <Routes>
         <Route path="/" element={<div>Public page</div>} />
+        <Route path="/login" element={<LoginDestination />} />
         <Route
           path="/studio"
           element={
@@ -77,6 +78,11 @@ function TestRoutes({
   );
 }
 
+function LoginDestination() {
+  const { state } = useLocation();
+  return <div>Login route <span>{state?.from}</span></div>;
+}
+
 function renderGuard(initialEntry: string, authenticated = false) {
   return render(
     <MemoryRouter initialEntries={[initialEntry]}>
@@ -92,9 +98,10 @@ function renderGuard(initialEntry: string, authenticated = false) {
 }
 
 describe('StudioRouteGuard', () => {
-  it('redirects unauthenticated access to the public experience', async () => {
-    renderGuard('/studio');
-    expect(await screen.findByText('Public page')).toBeInTheDocument();
+  it('redirects unauthenticated access to login with the original destination', async () => {
+    renderGuard('/studio?view=recent#overview');
+    expect(await screen.findByText('Login route')).toBeInTheDocument();
+    expect(screen.getByText('/studio?view=recent#overview')).toBeInTheDocument();
   });
 
   it('allows authenticated access to Studio', async () => {
@@ -109,7 +116,7 @@ describe('StudioRouteGuard', () => {
     await screen.findByText('Studio page');
     await user.click(screen.getByRole('button', { name: 'Log out' }));
 
-    expect(await screen.findByText('Public page')).toBeInTheDocument();
+    expect(await screen.findByText('Login route')).toBeInTheDocument();
   });
 
   it('leaves public invitation and storefront routes accessible', async () => {

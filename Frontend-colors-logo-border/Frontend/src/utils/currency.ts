@@ -20,5 +20,5 @@ export function formatMoney(
     currency,
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  }).format(amount);
+  }).format(amount / 100);
 }

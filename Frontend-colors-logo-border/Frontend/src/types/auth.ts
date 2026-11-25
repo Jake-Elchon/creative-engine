@@ -2,24 +2,28 @@ import type { ArtistSummary } from './models';
 
 export type SupportedLocale = 'en' | 'fr';
 
-export type OtpChannel = 'sms' | 'whatsapp';
-
 export interface OtpRequestPayload {
   phone: string;
-  channel: OtpChannel;
+  email: string;
 }
+
+export type OtpNextAction = 'login' | 'register';
 
 export interface OtpRequestResponse {
+  code: string;
   expiresAt: string;
-  isMockDemo?: boolean;
+  nextAction: OtpNextAction;
 }
 
-export interface OtpVerifyPayload {
+export interface OtpLoginPayload {
   phone: string;
   code: string;
-  fullName?: string;
-  preferredLang?: SupportedLocale;
   email?: string;
+}
+
+export interface OtpVerifyPayload extends OtpLoginPayload {
+  fullName: string;
+  preferredLang: SupportedLocale;
 }
 
 export interface AuthenticatedUser {
@@ -37,9 +41,12 @@ export interface HomeSeedData {
   nextCursor: string | null;
 }
 
-export interface AuthSession {
+export interface SessionTokens {
   accessToken: string;
   refreshToken: string;
+}
+
+export interface AuthSession extends SessionTokens {
   user: AuthenticatedUser;
   home: HomeSeedData;
   isMockDemo?: boolean;

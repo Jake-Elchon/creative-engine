@@ -32,8 +32,8 @@ export function MediaContainer({
   priority = false,
   className = '',
 }: MediaContainerProps) {
-  const [hasError, setHasError] = useState(false);
-  const showImage = Boolean(src) && !hasError;
+  const [failedSource, setFailedSource] = useState<string>();
+  const showImage = Boolean(src) && failedSource !== src;
 
   return (
     <div className={`zibi-media zibi-media--${aspectRatio} ${className}`}>
@@ -44,7 +44,7 @@ export function MediaContainer({
           className="zibi-media__img"
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
-          onError={() => setHasError(true)}
+          onError={() => setFailedSource(src)}
         />
       ) : (
         <div

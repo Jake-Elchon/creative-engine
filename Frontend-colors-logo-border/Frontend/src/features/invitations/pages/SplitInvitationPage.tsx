@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Check, FileSignature, X } from 'lucide-react';
 import { useLocation, useParams } from 'react-router-dom';
 import { useLanguage } from '@/app/providers/LanguageProvider';
-import { useToast } from '@/app/providers/ToastProvider';
 import { Badge } from '@/components/ui/Badge/Badge';
 import { Button } from '@/components/ui/Button/Button';
 import { Card } from '@/components/ui/Card/Card';
@@ -11,167 +10,126 @@ import { ErrorState } from '@/components/ui/ErrorState/ErrorState';
 import { LoadingIndicator } from '@/components/ui/LoadingIndicator/LoadingIndicator';
 import { apiClient } from '@/services/api';
 import { ApiClientError } from '@/types/api';
-import type { SplitInvitationDetail } from '@/types/models';
+import type { SplitDecision, SplitInvitationDetail } from '@/types/models';
 import { extractInviteTokenFromHash } from '@/utils/url';
+import { formatBpsAsPercent } from '@/utils/validation';
+import { useCollaboratorIdentity } from '../collaboratorIdentity';
+
+type LandingState =
+  | { kind: 'loading' | 'expired' | 'missing' | 'error' }
+  | { kind: 'ready'; data: SplitInvitationDetail };
 
 export function SplitInvitationPage() {
   const { inviteId = '' } = useParams<{ inviteId: string }>();
   const { hash } = useLocation();
-  const { t } = useLanguage();
-  const { pushToast } = useToast();
-
-  // Extract opaque token strictly from URL fragment, never from query params or logs
   const inviteToken = extractInviteTokenFromHash(hash);
 
-  const [invitation, setInvitation] = useState<SplitInvitationDetail | null>(null);
-  const [isLoading, setIsLoading] = useState(Boolean(inviteToken));
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  return <InvitationLanding key={inviteId} inviteId={inviteId} inviteToken={inviteToken} />;
+}
 
-  const loadInvitation = useCallback(async () => {
-    if (!inviteToken || !inviteId) return;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const data = await apiClient.getSplitInvitation(inviteId, inviteToken);
-      setInvitation(data);
-    } catch (err) {
-      setError(
-        err instanceof ApiClientError ? err.message : t.discovery.initialErrorServer,
-      );
-    } finally {
-      setIsLoading(false);
-    }
-  }, [inviteId, inviteToken, t.discovery.initialErrorServer]);
+function InvitationLanding({ inviteId, inviteToken }: { inviteId: string; inviteToken: string | null }) {
+  const { t } = useLanguage();
+  const identity = useCollaboratorIdentity();
+  const [landing, setLanding] = useState<LandingState>({ kind: 'loading' });
+  const [attempt, setAttempt] = useState(0);
+  const [decision, setDecision] = useState<SplitDecision | null>(null);
+  const [decisionError, setDecisionError] = useState('');
+  const active = useRef(false);
+  const load = useRef<AbortController | null>(null);
 
   useEffect(() => {
-    void loadInvitation();
-  }, [loadInvitation]);
-
-  const handleDecision = async (decision: 'ACCEPT' | 'REJECT') => {
     if (!inviteToken || !inviteId) return;
-    setIsSubmitting(true);
+    const controller = new AbortController();
+    load.current = controller;
+    setLanding({ kind: 'loading' });
+    setDecisionError('');
+    void apiClient.getSplitInvitation(inviteId, inviteToken, controller.signal).then((data) => {
+      if (!controller.signal.aborted) setLanding({ kind: 'ready', data });
+    }).catch((error: unknown) => {
+      if (controller.signal.aborted) return;
+      const status = error instanceof ApiClientError ? error.status : null;
+      setLanding({ kind: status === 410 ? 'expired' : status === 404 ? 'missing' : 'error' });
+    });
+    return () => controller.abort();
+  }, [attempt, inviteId, inviteToken]);
+
+  const copy = t.invites;
+  const retry = () => setAttempt((previous) => previous + 1);
+  const verified = identity.status === 'verified' && identity.session.phoneConfirmed && Boolean(identity.session.accessToken);
+
+  async function submit(value: SplitDecision) {
+    if (active.current || !inviteToken || !verified || identity.status !== 'verified' ||
+        landing.kind !== 'ready' || landing.data.status !== 'PENDING') return;
+    const controller = load.current;
+    if (!controller || controller.signal.aborted) return;
+    active.current = true;
+    setDecision(value);
+    setDecisionError('');
     try {
-      const updated = await apiClient.respondToSplitInvitation(
-        inviteId,
-        inviteToken,
-        decision,
-      );
-      setInvitation(updated);
-      pushToast(updated.status, decision === 'ACCEPT' ? 'success' : 'info');
-    } catch (err) {
-      pushToast(
-        err instanceof ApiClientError ? err.message : t.discovery.initialErrorServer,
-        'error',
-      );
+      const data = await apiClient.respondToSplitInvitation(inviteId, inviteToken, value, identity.session);
+      if (!controller.signal.aborted) setLanding({ kind: 'ready', data });
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      const status = error instanceof ApiClientError ? error.status : null;
+      switch (status) {
+        case 401: setDecisionError(copy.signInRequired); break;
+        case 403: setDecisionError(copy.phoneRequired); break;
+        case 404: setLanding({ kind: 'missing' }); break;
+        case 409: setDecisionError(copy.decisionConflict); break;
+        case 410: setLanding({ kind: 'expired' }); break;
+        default: setDecisionError(copy.decisionFailed);
+      }
     } finally {
-      setIsSubmitting(false);
+      active.current = false;
+      setDecision(null);
     }
-  };
+  }
+
+  const information = identity.status === 'unavailable' ? copy.verificationUnavailable
+    : identity.status === 'signedOut' ? copy.signInRequired
+    : identity.status === 'phoneRequired' ? copy.phoneRequired : null;
 
   return (
-    <section
-      className="zibi-container"
-      style={{ paddingBlock: 'var(--space-12)', maxWidth: '640px' }}
-    >
+    <section className="zibi-container" style={{ paddingBlock: 'var(--space-12)', maxWidth: 640 }}>
       <div style={{ marginBottom: 'var(--space-6)' }}>
-        <h1 style={{ fontSize: 'var(--text-3xl)' }}>{t.invites.title}</h1>
-        <p style={{ color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>
-          {t.invites.subtitle}
-        </p>
+        <h1 style={{ fontSize: 'var(--text-3xl)' }}>{copy.title}</h1>
+        <p style={{ color: 'var(--text-secondary)', marginTop: 'var(--space-1)' }}>{copy.subtitle}</p>
       </div>
 
-      {!inviteToken ? (
-        <EmptyState
-          title={t.invites.missingTokenTitle}
-          subtitle={t.invites.missingTokenBody}
-          icon={<FileSignature size={24} />}
-        />
-      ) : isLoading ? (
-        <Card>
-          <LoadingIndicator />
-        </Card>
-      ) : error ? (
-        <ErrorState
-          title={t.invites.title}
-          subtitle={error}
-          onRetry={() => void loadInvitation()}
-        />
-      ) : invitation ? (
-        <Card style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ color: 'var(--text-secondary)', fontSize: 'var(--text-sm)' }}>
-              {t.invites.statusLabel}
-            </span>
-            <Badge
-              variant={
-                invitation.status === 'ACCEPTED'
-                  ? 'forest'
-                  : invitation.status === 'REJECTED' || invitation.status === 'EXPIRED'
-                    ? 'terracotta'
-                    : 'gold'
-              }
-            >
-              {invitation.status}
-            </Badge>
-          </div>
-
-          <hr className="cultural-divider" />
-
-          <div>
-            <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-              {t.invites.productLabel}
-            </span>
-            <h2 style={{ fontSize: 'var(--text-xl)' }}>{invitation.productTitle}</h2>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-4)' }}>
-            <div>
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                {t.invites.creatorLabel}
-              </span>
-              <p style={{ fontWeight: 'var(--font-semibold)' }}>
-                {invitation.creatorDisplayName}
-              </p>
+      {!inviteToken ? <EmptyState title={copy.missingTokenTitle} subtitle={copy.missingTokenBody} icon={<FileSignature size={24} />} />
+        : landing.kind === 'loading' ? <Card><LoadingIndicator /></Card>
+        : landing.kind === 'expired' ? <EmptyState title={copy.expiredNote} icon={<FileSignature size={24} />} />
+        : landing.kind === 'missing' ? <EmptyState title={copy.notFound} icon={<FileSignature size={24} />} />
+        : landing.kind === 'error' ? <ErrorState title={copy.loadFailed} onRetry={retry} />
+        : landing.kind === 'ready' && (
+          <Card style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>{copy.statusLabel}</span>
+              <Badge variant={landing.data.status === 'ACCEPTED' ? 'forest' : landing.data.status === 'REJECTED' ? 'terracotta' : 'gold'}>
+                {landing.data.status === 'ACCEPTED' ? copy.accepted : landing.data.status === 'REJECTED' ? copy.rejected : copy.pending}
+              </Badge>
             </div>
-            <div>
-              <span style={{ fontSize: 'var(--text-xs)', color: 'var(--text-muted)' }}>
-                {t.invites.shareLabel}
-              </span>
-              <p style={{ fontWeight: 'var(--font-bold)', color: 'var(--color-gold)', fontSize: 'var(--text-xl)' }}>
-                {invitation.sharePercentage}%
-              </p>
-            </div>
-          </div>
-
-          {invitation.status === 'EXPIRED' ? (
-            <p style={{ fontSize: 'var(--text-sm)', color: 'var(--state-error)' }}>
-              {t.invites.expiredNote}
-            </p>
-          ) : invitation.status === 'PENDING' ? (
-            <div style={{ display: 'flex', gap: 'var(--space-3)', marginTop: 'var(--space-2)' }}>
-              <Button
-                variant="secondary"
-                fullWidth
-                disabled={isSubmitting}
-                onClick={() => void handleDecision('REJECT')}
-                leftIcon={<X size={16} />}
-              >
-                {t.invites.reject}
-              </Button>
-              <Button
-                variant="gold"
-                fullWidth
-                isLoading={isSubmitting}
-                onClick={() => void handleDecision('ACCEPT')}
-                leftIcon={<Check size={16} />}
-              >
-                {t.invites.accept}
-              </Button>
-            </div>
-          ) : null}
-        </Card>
-      ) : null}
+            <hr className="cultural-divider" />
+            <dl>
+              <dt style={{ color: 'var(--text-muted)' }}>{copy.productId}</dt>
+              <dd><code style={{ overflowWrap: 'anywhere' }}>{landing.data.productId}</code></dd>
+              <dt style={{ marginTop: 'var(--space-3)', color: 'var(--text-muted)' }}>{copy.shareLabel}</dt>
+              <dd style={{ color: 'var(--color-gold)', fontSize: 'var(--text-xl)' }}>{formatBpsAsPercent(landing.data.shareBps)}</dd>
+            </dl>
+            {landing.data.status === 'PENDING' && (
+              <>
+                {information && <p role="status">{information}</p>}
+                {identity.status === 'signedOut' && <Button variant="secondary" onClick={identity.signIn}>{t.nav.signIn}</Button>}
+                {identity.status === 'phoneRequired' && <Button variant="secondary" onClick={identity.confirmPhone}>{copy.phoneRequired}</Button>}
+                {verified && <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
+                  <Button variant="secondary" disabled={decision !== null} isLoading={decision === 'reject'} onClick={() => void submit('reject')} leftIcon={<X size={16} />}>{copy.reject}</Button>
+                  <Button variant="gold" disabled={decision !== null} isLoading={decision === 'accept'} onClick={() => void submit('accept')} leftIcon={<Check size={16} />}>{copy.accept}</Button>
+                </div>}
+                {decisionError && <p role="alert" className="zibi-field__error">{decisionError}</p>}
+              </>
+            )}
+          </Card>
+        )}
     </section>
   );
 }

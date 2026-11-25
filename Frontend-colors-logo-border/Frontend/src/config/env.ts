@@ -1,17 +1,21 @@
 function normalizeApiBaseUrl(rawUrl: string | undefined): string {
-  const fallback = 'https://api.kamerpay.cm/api/v1';
-  const trimmed = (rawUrl || fallback).trim().replace(/\/+$/, '');
-  if (trimmed.endsWith('/api/v1')) {
-    return trimmed;
-  }
-  return `${trimmed}/api/v1`;
+  const base = (rawUrl?.trim() || 'https://api.kamerpay.cm/api/v1').replace(/\/+$/, '');
+  return base.endsWith('/api/v1') ? base : `${base}/api/v1`;
 }
 
+const apiBaseUrl = normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL);
+const isProduction = import.meta.env.PROD || (typeof __ZIBI_STATIC_BUILD__ !== 'undefined' && __ZIBI_STATIC_BUILD__);
+const useMockApi = !isProduction && import.meta.env.VITE_USE_MOCK_API === 'true';
+const loopbackHosts = ['localhost', '127.0.0.1', '[::1]'];
+const apiHost = new URL(apiBaseUrl, window.location.origin).hostname;
+
 export const env = {
-  apiBaseUrl: normalizeApiBaseUrl(import.meta.env.VITE_API_BASE_URL),
-  useMockApi: import.meta.env.VITE_USE_MOCK_API === 'true',
+  apiBaseUrl,
+  useMockApi,
+  localOtpAvailable: !isProduction && loopbackHosts.includes(window.location.hostname) &&
+    (useMockApi || loopbackHosts.includes(apiHost)),
   publicDomain: (import.meta.env.VITE_PUBLIC_DOMAIN || 'https://kamerpay.cm')
     .trim()
     .replace(/\/+$/, ''),
-  isProduction: import.meta.env.PROD,
+  isProduction,
 } as const;

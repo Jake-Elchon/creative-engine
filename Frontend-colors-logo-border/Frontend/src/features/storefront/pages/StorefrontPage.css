@@ -18,19 +18,22 @@
   position: relative;
   z-index: 1;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-6);
   align-items: center;
 }
 
 @media (min-width: 768px) {
   .zibi-storefront-banner {
-    grid-template-columns: 220px 1fr;
+    grid-template-columns: 220px minmax(0, 1fr);
     gap: var(--space-8);
   }
 }
 
 .zibi-storefront-meta {
   display: flex;
+  min-width: 0;
+  overflow-wrap: anywhere;
   flex-direction: column;
   gap: var(--space-3);
 }
@@ -77,7 +80,7 @@
 
 .zibi-product-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-5);
 }
 
@@ -95,8 +98,16 @@
 
 .zibi-product-card {
   display: flex;
+  min-width: 0;
+  overflow-wrap: anywhere;
   flex-direction: column;
   gap: var(--space-3);
+}
+
+.zibi-product-card video {
+  aspect-ratio: 16 / 9;
+  object-fit: contain;
+  background: var(--bg-primary);
 }
 
 .zibi-product-card__price-row {
@@ -104,6 +115,7 @@
   padding-top: var(--space-3);
   border-top: 1px solid var(--border-subtle);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);

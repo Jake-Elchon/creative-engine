@@ -1,0 +1,65 @@
+.zibi-sign-in {
+  max-width: 38rem;
+  padding-block: clamp(var(--space-8), 8vw, var(--space-16));
+}
+
+.zibi-sign-in h1 {
+  margin-bottom: var(--space-5);
+  font-size: clamp(var(--text-2xl), 5vw, var(--text-4xl));
+}
+
+.zibi-sign-in .zibi-card {
+  padding: clamp(var(--space-4), 5vw, var(--space-8));
+}
+
+.zibi-otp-flow {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.zibi-otp-note {
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.zibi-otp-form-title {
+  font-size: var(--text-xl);
+}
+
+.zibi-otp-challenge {
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-glass-subtle);
+  font-size: var(--text-sm);
+}
+
+.zibi-otp-challenge__actions,
+.zibi-otp-challenge__actions span,
+.zibi-otp-form-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.zibi-otp-challenge__actions,
+.zibi-otp-form-actions {
+  justify-content: space-between;
+  flex-wrap: wrap;
+}
+
+.zibi-otp-form-actions > button:last-child {
+  flex: 1 1 10rem;
+}
+
+.zibi-sign-in-switch {
+  margin-top: var(--space-5);
+  color: var(--text-secondary);
+  font-size: var(--text-sm);
+}
+
+.zibi-sign-in-switch a {
+  color: var(--color-gold);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}

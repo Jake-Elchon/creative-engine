@@ -1,6 +1,19 @@
-import type { StorefrontProduct } from '@/types/models';
+import type { SupportedCurrency } from '@/types/models';
 
-export const MOCK_PRODUCTS_BY_HANDLE: Record<string, StorefrontProduct[]> = {
+interface DemoProduct {
+  productId: string;
+  title: string;
+  description: string;
+  type: 'MUSIC' | 'VIDEO' | 'EBOOK' | 'TIP' | 'SHOUTOUT';
+  previewAvailable: boolean;
+  previewDurationSeconds?: number;
+  xafPrice: number;
+  displayPrices?: { currency: SupportedCurrency; amount: number; isDisplayOnly: boolean }[];
+  splitsComplete: boolean;
+  isMockDemo: boolean;
+}
+
+export const MOCK_PRODUCTS_BY_HANDLE: Record<string, DemoProduct[]> = {
   manuela_nkono: [
     {
       productId: 'prod_mn_01',

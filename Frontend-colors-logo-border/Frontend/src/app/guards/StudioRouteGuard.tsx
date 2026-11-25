@@ -26,10 +26,9 @@ export function StudioRouteGuard({ children }: StudioRouteGuardProps) {
   if (!session) {
     return (
       <Navigate
-        to="/"
+        to="/login"
         replace
         state={{
-          authRequired: true,
           from: `${location.pathname}${location.search}${location.hash}`,
         }}
       />

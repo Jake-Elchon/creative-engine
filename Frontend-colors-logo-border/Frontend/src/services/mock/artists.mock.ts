@@ -1,7 +1,15 @@
 import { buildStorefrontPublicUrl } from '@/utils/url';
 import type { ArtistSummary } from '@/types/models';
 
-export const MOCK_ARTISTS: ArtistSummary[] = [
+type DemoArtist = ArtistSummary & {
+  genre?: string;
+  city?: string;
+  avatarUrl?: string;
+  coverUrl?: string;
+  accentTone?: 'terracotta' | 'gold' | 'forest' | 'indigo';
+};
+
+export const MOCK_ARTISTS: DemoArtist[] = [
   {
     storefrontId: 'sf_01_manuela_nkono',
     handle: 'manuela_nkono',

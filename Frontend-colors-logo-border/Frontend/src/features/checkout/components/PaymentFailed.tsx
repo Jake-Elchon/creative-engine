@@ -4,7 +4,7 @@ import { Button } from '@/components/ui/Button/Button';
 
 export interface PaymentFailedProps {
   isExpired?: boolean;
-  onRetryAttempt: () => void;
+  onRetryAttempt?: () => void;
   onBackToStorefront: () => void;
 }
 
@@ -41,9 +41,9 @@ export function PaymentFailed({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
-        <Button type="button" variant="primary" fullWidth onClick={onRetryAttempt}>
+        {onRetryAttempt && <Button type="button" variant="primary" fullWidth onClick={onRetryAttempt}>
           {t.checkout.tryNewAttempt}
-        </Button>
+        </Button>}
         <Button type="button" variant="secondary" fullWidth onClick={onBackToStorefront}>
           {t.checkout.continueAction}
         </Button>

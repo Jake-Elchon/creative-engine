@@ -4,6 +4,7 @@ import { LoadingIndicator } from '@/components/ui/LoadingIndicator/LoadingIndica
 import { DiscoveryPage } from '@/features/discovery/pages/DiscoveryPage';
 import { PublicLayout } from '@/layouts/PublicLayout';
 import { StudioLayout } from '@/layouts/StudioLayout';
+import { SignInPage } from '@/features/authentication/components/SignInPage';
 import { StudioRouteGuard } from '@/app/guards/StudioRouteGuard';
 
 const StorefrontPage = lazy(() =>
@@ -18,10 +19,16 @@ const StudioDashboardPage = lazy(() =>
   })),
 );
 
-const StudioPlaceholderPage = lazy(() =>
-  import('@/features/studio/pages/StudioPlaceholderPage').then((m) => ({
-    default: m.StudioPlaceholderPage,
-  })),
+const StudioStorefrontPage = lazy(() =>
+  import('@/features/studio/pages/StudioStorefrontPage').then((m) => ({ default: m.StudioStorefrontPage })),
+);
+
+const StudioProductsPage = lazy(() =>
+  import('@/features/studio/pages/StudioProductsPage').then((m) => ({ default: m.StudioProductsPage })),
+);
+
+const StudioCollaborationsPage = lazy(() =>
+  import('@/features/studio/pages/StudioCollaborationsPage').then((m) => ({ default: m.StudioCollaborationsPage })),
 );
 
 const SplitInvitationPage = lazy(() =>
@@ -59,7 +66,7 @@ function HandleOrNotFound() {
   if (handle && handle.startsWith('@') && handle.length > 1) {
     return (
       <RouteSuspense>
-        <StorefrontPage />
+        <StorefrontPage key={handle} />
       </RouteSuspense>
     );
   }
@@ -78,6 +85,14 @@ export const router = createBrowserRouter([
       {
         index: true,
         element: <DiscoveryPage />,
+      },
+      {
+        path: 'login',
+        element: <SignInPage key="login" />,
+      },
+      {
+        path: 'create-account',
+        element: <SignInPage key="create-account" createAccount />,
       },
       {
         path: 'invites/:inviteId',
@@ -121,7 +136,7 @@ export const router = createBrowserRouter([
         path: 'storefront',
         element: (
           <RouteSuspense>
-            <StudioPlaceholderPage section="storefront" />
+            <StudioStorefrontPage />
           </RouteSuspense>
         ),
       },
@@ -129,7 +144,7 @@ export const router = createBrowserRouter([
         path: 'products',
         element: (
           <RouteSuspense>
-            <StudioPlaceholderPage section="products" />
+            <StudioProductsPage />
           </RouteSuspense>
         ),
       },
@@ -137,7 +152,7 @@ export const router = createBrowserRouter([
         path: 'collaborations',
         element: (
           <RouteSuspense>
-            <StudioPlaceholderPage section="collaborations" />
+            <StudioCollaborationsPage />
           </RouteSuspense>
         ),
       },

@@ -13,20 +13,25 @@ import { useCheckout } from '@/features/checkout/hooks/useCheckout';
 import { apiClient } from '@/services/api';
 import type { CheckoutTransaction, StorefrontProduct } from '@/types/models';
 import { formatMoney } from '@/utils/currency';
-import { isValidXafAmountMinor, MAX_EMAIL_LENGTH } from '@/utils/validation';
+import { checkoutAmount } from '@/features/storefront/catalog';
+import { MAX_EMAIL_LENGTH } from '@/utils/validation';
 
 export interface CheckoutModalProps {
-  product: StorefrontProduct | null;
+  product: StorefrontProduct;
+  isOpen: boolean;
   creatorName?: string;
   onClose: () => void;
-  onPriceChanged?: () => void;
+  onRelease: () => void;
+  onPriceChanged: () => Promise<StorefrontProduct | null>;
   onPurchaseSuccess?: (tx: CheckoutTransaction) => void;
 }
 
 export function CheckoutModal({
   product,
+  isOpen,
   creatorName,
   onClose,
+  onRelease,
   onPriceChanged,
   onPurchaseSuccess,
 }: CheckoutModalProps) {
@@ -43,13 +48,27 @@ export function CheckoutModal({
     await checkout.initiate();
   };
 
-  const hasValidPrice = product ? isValidXafAmountMinor(product.xafPrice) : false;
+  const currentProduct = checkout.priceReview?.product ?? product;
+  const amount = checkoutAmount(currentProduct);
+  const hasValidPrice = currentProduct.checkoutAvailable && amount !== null && amount >= 100;
+  const review = checkout.priceReview;
+  const reviewBlocked = review !== null && review.state !== 'ready';
+
+  function close() {
+    onClose();
+    if (!checkout.isSubmitting && !checkout.transaction && !checkout.uncertainAttempt && !review) onRelease();
+  }
+
+  function finish() {
+    onClose();
+    onRelease();
+  }
 
   return (
     <Modal
-      isOpen={Boolean(product)}
-      onClose={onClose}
-      title={product ? product.title : t.checkout.modalTitle}
+      isOpen={isOpen}
+      onClose={close}
+      title={t.productTypes[product.type.code] || t.checkout.modalTitle}
     >
       {product && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
@@ -66,20 +85,20 @@ export function CheckoutModal({
           {checkout.isSessionExpired || checkout.transaction?.status === 'FAILED' ? (
             <PaymentFailed
               isExpired={checkout.isSessionExpired}
-              onRetryAttempt={checkout.startFreshAttempt}
-              onBackToStorefront={onClose}
+              onRetryAttempt={checkout.isSessionExpired ? undefined : checkout.startFreshAttempt}
+              onBackToStorefront={checkout.isSessionExpired ? close : finish}
             />
           ) : checkout.transaction?.status === 'SUCCESS' ? (
             <PaymentSuccess
               transaction={checkout.transaction}
-              onContinue={onClose}
+              onContinue={finish}
             />
           ) : checkout.transaction?.status === 'PENDING' ? (
             <PaymentPending
               transaction={checkout.transaction}
               statusError={checkout.statusError}
               isRefreshing={checkout.isRefreshing}
-              onRefresh={checkout.refreshStatus}
+              onRefresh={checkout.canRefreshStatus ? checkout.refreshStatus : undefined}
             />
           ) : (
             <form
@@ -101,8 +120,8 @@ export function CheckoutModal({
                   {t.checkout.amountLabel} (XAF)
                 </span>
                 <strong style={{ fontSize: 'var(--text-lg)', color: 'var(--color-gold)' }}>
-                  {hasValidPrice
-                    ? formatMoney(product.xafPrice, 'XAF', locale)
+                  {hasValidPrice && !reviewBlocked && amount !== null
+                    ? formatMoney(amount, 'XAF', locale)
                     : '—'}
                 </strong>
               </div>
@@ -111,7 +130,24 @@ export function CheckoutModal({
                 {t.checkout.currencyRuleNote}
               </p>
 
-              {!hasValidPrice ? (
+              {review?.state === 'loading' && <p role="status">{t.common.loading}</p>}
+              {review?.state === 'failed' && <>
+                <p role="alert" className="zibi-field__error">{t.checkout.priceRefreshFailed}</p>
+                <Button variant="secondary" onClick={checkout.retryPrice}>{t.checkout.priceRefresh}</Button>
+              </>}
+              {review?.state === 'unavailable' && (
+                <p role="alert" className="zibi-field__error">{t.checkout.unavailableReview}</p>
+              )}
+              {review?.state === 'ready' && amount !== null && (
+                <p role="status">
+                  {amount === review.previous ? t.checkout.priceChangedBody : formatMessage(t.checkout.priceReview, {
+                    old: formatMoney(review.previous, 'XAF', locale),
+                    current: formatMoney(amount, 'XAF', locale),
+                  })}
+                </p>
+              )}
+
+              {reviewBlocked ? null : !hasValidPrice || amount === null ? (
                 <p className="zibi-field__error" role="alert">
                   {t.checkout.invalidPriceError}
                 </p>
@@ -120,17 +156,18 @@ export function CheckoutModal({
                   <PaymentRailSelector
                     value={checkout.rail}
                     onChange={checkout.setRail}
-                    disabled={checkout.isSubmitting}
+                    disabled={checkout.isSubmitting || checkout.uncertainAttempt}
                   />
 
                   <Input
                     label={t.checkout.buyerPhoneLabel}
                     placeholder={t.checkout.buyerPhonePlaceholder}
-                    hint={t.auth.phoneHint}
+                    hint={t.checkout.mobilePhone}
                     value={checkout.buyerPhone}
                     onChange={(e) => checkout.setBuyerPhone(e.target.value)}
                     leftIcon={<Smartphone size={16} />}
                     autoComplete="tel"
+                    disabled={checkout.isSubmitting || checkout.uncertainAttempt}
                   />
 
                   <Input
@@ -142,9 +179,10 @@ export function CheckoutModal({
                     onChange={(e) => checkout.setBuyerEmail(e.target.value)}
                     leftIcon={<Mail size={16} />}
                     autoComplete="email"
+                    disabled={checkout.isSubmitting || checkout.uncertainAttempt}
                   />
 
-                  {checkout.error && (
+                  {checkout.error && (!review || checkout.error !== t.checkout.priceChangedBody) && (
                     <p className="zibi-field__error" role="alert">
                       {checkout.error}
                     </p>
@@ -152,7 +190,7 @@ export function CheckoutModal({
 
                   <Button type="submit" fullWidth isLoading={checkout.isSubmitting}>
                     {formatMessage(t.checkout.confirmPay, {
-                      amount: formatMoney(product.xafPrice, 'XAF', locale),
+                      amount: formatMoney(amount, 'XAF', locale),
                     })}
                   </Button>
                 </>

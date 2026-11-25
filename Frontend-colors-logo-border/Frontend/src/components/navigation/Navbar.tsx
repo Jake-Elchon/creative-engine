@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Globe, LogOut, Menu, User, X } from 'lucide-react';
-import { Link, NavLink } from 'react-router-dom';
+import { Link, NavLink, useLocation } from 'react-router-dom';
 import { useAuth } from '@/app/providers/AuthProvider';
 import { useLanguage } from '@/app/providers/LanguageProvider';
 import { Button } from '@/components/ui/Button/Button';
@@ -10,7 +10,9 @@ import './Navbar.css';
 
 export function Navbar() {
   const { locale, toggleLocale, t } = useLanguage();
-  const { session, openAuthModal, signOut } = useAuth();
+  const { session, signOut } = useAuth();
+  const location = useLocation();
+  const authState = location.pathname === '/login' || location.pathname === '/create-account' ? location.state : undefined;
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const closeDrawer = () => setDrawerOpen(false);
@@ -70,14 +72,15 @@ export function Navbar() {
                 {session.user.fullName.split(' ')[0]} · {t.nav.signOut}
               </Button>
             ) : (
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={openAuthModal}
-                leftIcon={<User size={14} />}
-              >
-                {t.nav.signIn}
-              </Button>
+              <>
+                <Link to="/login" state={authState} className="zibi-btn zibi-btn--primary zibi-btn--sm">
+                  <User size={14} aria-hidden="true" />
+                  {t.nav.signIn}
+                </Link>
+                <Link to="/create-account" state={authState} className="zibi-btn zibi-btn--secondary zibi-btn--sm">
+                  {t.auth.registerSubmit}
+                </Link>
+              </>
             )}
           </div>
 
@@ -163,17 +166,15 @@ export function Navbar() {
                   {t.nav.signOut}
                 </Button>
               ) : (
-                <Button
-                  variant="primary"
-                  fullWidth
-                  onClick={() => {
-                    closeDrawer();
-                    openAuthModal();
-                  }}
-                  leftIcon={<User size={16} />}
-                >
-                  {t.nav.signIn}
-                </Button>
+                <>
+                  <Link to="/login" state={authState} onClick={closeDrawer} className="zibi-btn zibi-btn--primary zibi-btn--md zibi-btn--full">
+                    <User size={16} aria-hidden="true" />
+                    {t.nav.signIn}
+                  </Link>
+                  <Link to="/create-account" state={authState} onClick={closeDrawer} className="zibi-btn zibi-btn--secondary zibi-btn--md zibi-btn--full">
+                    {t.auth.registerSubmit}
+                  </Link>
+                </>
               )}
             </div>
           </aside>

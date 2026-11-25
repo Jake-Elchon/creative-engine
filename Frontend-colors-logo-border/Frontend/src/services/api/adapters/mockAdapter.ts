@@ -1,311 +1,253 @@
+import type { AuthSession, AuthenticatedUser, OtpLoginPayload, OtpRequestPayload, OtpRequestResponse, OtpVerifyPayload } from '@/types/auth';
+import { ApiClientError } from '@/types/api';
 import type {
-  CheckoutInitiateParams,
-  DiscoverArtistsParams,
-  GetStorefrontParams,
-  IApiAdapter,
-} from '@/services/api/adapters/types';
+  ArtistSummary, CheckoutTransaction, CreatedProduct, PriceReplacement, ProductCreateRequest,
+  ProductTypeCode, StorefrontProduct, StorefrontCreateRequest, StorefrontUpdateRequest, SupportedCurrency,
+} from '@/types/models';
+import type { CheckoutInitiateParams, DiscoverArtistsParams, GetStorefrontParams, IApiAdapter } from './types';
 import { MOCK_ARTISTS } from '@/services/mock/artists.mock';
 import { MOCK_PRODUCTS_BY_HANDLE } from '@/services/mock/products.mock';
 import { MOCK_SPLIT_INVITATIONS } from '@/services/mock/splits.mock';
-import { ApiClientError } from '@/types/api';
-import type {
-  AuthSession,
-  OtpRequestPayload,
-  OtpRequestResponse,
-  OtpVerifyPayload,
-} from '@/types/auth';
-import type {
-  CheckoutTransaction,
-  DiscoveryArtistsResponse,
-  SplitInvitationDetail,
-  StorefrontDetail,
-} from '@/types/models';
+import { isValidEmail, isValidCameroonPhone, isValidFullName } from '@/utils/validation';
 import { normalizeHandle } from '@/utils/url';
-import {
-  isValidCameroonPhone,
-  isValidEmail,
-  isValidOtpCode,
-  isValidXafAmountMinor,
-  MAX_SEARCH_QUERY_LENGTH,
-} from '@/utils/validation';
 
-function waitWithAbort(ms: number, signal?: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    if (signal?.aborted) {
-      reject(new DOMException('Aborted', 'AbortError'));
-      return;
-    }
+const typeCodes = { MUSIC: 'release', VIDEO: 'video', EBOOK: 'ebook', TIP: 'tip', SHOUTOUT: 'shoutout' } as const;
+const typeNames: Record<ProductTypeCode, string> = {
+  release: 'Music release', video: 'Video', ebook: 'E-book', tip: 'Tip', shoutout: 'Shoutout',
+};
 
-    const timer = window.setTimeout(() => {
-      cleanup();
-      resolve();
-    }, ms);
-
-    const onAbort = () => {
-      window.clearTimeout(timer);
-      cleanup();
-      reject(new DOMException('Aborted', 'AbortError'));
-    };
-
-    const cleanup = () => {
-      signal?.removeEventListener('abort', onAbort);
-    };
-
-    signal?.addEventListener('abort', onAbort, { once: true });
-  });
+function error(status: number, code: string, kind: ApiClientError['kind']) {
+  return new ApiClientError({ status, code, kind, message: code });
 }
 
-const mockTransactions = new Map<
-  string,
-  { tx: CheckoutTransaction; pollCount: number }
->();
+function paginate<T>(items: T[], cursor?: string, limit = 20) {
+  const start = Number(cursor) || 0;
+  const end = start + limit;
+  return { items: items.slice(start, end), nextCursor: end < items.length ? String(end) : null };
+}
+
+function demoType(code: ProductTypeCode) {
+  return { id: `demo-${code}`, code, name: typeNames[code] };
+}
 
 export class MockApiAdapter implements IApiAdapter {
-  public readonly isMock = true;
+  readonly isMock = true;
+  private codes = new Map<string, { email: string; code: string; expiresAt: string }>();
+  private profiles = new Map<string, AuthenticatedUser>();
+  private refresh = new Set<string>();
+  private storefronts: ArtistSummary[] = [...MOCK_ARTISTS];
+  private demoProducts = new Map<string, CreatedProduct>();
+  private demoMedia = new Map<string, File>();
+  private prices = new Map<string, StorefrontProduct['prices']>();
+  private transactions = new Map<string, { tx: CheckoutTransaction; polls: number }>();
+  private attempts = new Map<string, { fingerprint: string; tx: CheckoutTransaction }>();
 
-  async requestOtp(payload: OtpRequestPayload): Promise<OtpRequestResponse> {
-    await waitWithAbort(240);
-    if (!isValidCameroonPhone(payload.phone)) {
-      throw new ApiClientError({
-        message: 'Invalid Cameroonian phone number format. Expected +237XXXXXXXXX.',
-        code: 'INVALID_INPUT',
-        status: 400,
-        kind: 'VALIDATION_ERROR',
-      });
-    }
+  private issueTokens() {
+    const refreshToken = crypto.randomUUID();
+    this.refresh.add(refreshToken);
+    return { accessToken: crypto.randomUUID(), refreshToken };
+  }
 
+  async requestOtp({ phone, email }: OtpRequestPayload): Promise<OtpRequestResponse> {
+    if (!isValidCameroonPhone(phone) || !isValidEmail(email)) throw error(400, 'INVALID_INPUT', 'VALIDATION_ERROR');
+    const issued = { email, code: '012345', expiresAt: new Date(Date.now() + 300_000).toISOString() };
+    this.codes.set(phone, issued);
+    const profile = this.profiles.get(phone);
     return {
-      expiresAt: new Date(Date.now() + 5 * 60 * 1000).toISOString(),
-      isMockDemo: true,
+      code: issued.code,
+      expiresAt: issued.expiresAt,
+      nextAction: profile?.email?.toLowerCase() === email.toLowerCase() ? 'login' : 'register',
     };
+  }
+
+  private consumeCode({ phone, code, email }: OtpLoginPayload) {
+    const issued = this.codes.get(phone);
+    if (!issued || issued.code !== code || (email && email.toLowerCase() !== issued.email.toLowerCase()) ||
+        Date.parse(issued.expiresAt) <= Date.now()) {
+      throw error(422, 'INVALID_OR_EXPIRED_OTP', 'UNPROCESSABLE_ENTITY');
+    }
+    this.codes.delete(phone);
+    return issued.email;
+  }
+
+  private async startSession(user: AuthenticatedUser): Promise<AuthSession> {
+    const seed = await this.discoverArtists({ limit: 6 });
+    return { ...this.issueTokens(), user, home: { status: 'ready', artists: seed.items, nextCursor: seed.nextCursor }, isMockDemo: true };
   }
 
   async verifyOtp(payload: OtpVerifyPayload): Promise<AuthSession> {
-    await waitWithAbort(280);
-    if (!isValidCameroonPhone(payload.phone) || !isValidOtpCode(payload.code)) {
-      throw new ApiClientError({
-        message: 'Invalid or expired verification code.',
-        code: 'INVALID_OR_EXPIRED_OTP',
-        status: 422,
-        kind: 'UNPROCESSABLE_ENTITY',
-      });
+    const { phone, fullName, preferredLang } = payload;
+    const email = this.consumeCode(payload);
+    const profile = this.profiles.get(phone);
+    if (profile) {
+      if (profile.email?.toLowerCase() !== email.toLowerCase()) throw error(422, 'INVALID_OR_EXPIRED_OTP', 'UNPROCESSABLE_ENTITY');
+      throw error(409, 'LOGIN_REQUIRED', 'CONFLICT');
     }
-
-    return {
-      accessToken: `mock_access_${Date.now()}`,
-      refreshToken: `mock_refresh_${Date.now()}`,
-      user: {
-        id: 'usr_mock_01',
-        email: payload.email?.trim() || null,
-        fullName: payload.fullName?.trim() || 'Amina N.',
-        preferredLang: payload.preferredLang || 'en',
-        registeredAt: new Date().toISOString(),
-        phone: payload.phone,
-      },
-      home: {
-        status: 'ready',
-        artists: MOCK_ARTISTS.slice(0, 4),
-        nextCursor: '4',
-      },
-      isMockDemo: true,
-    };
+    if (!isValidFullName(fullName) || !preferredLang) throw error(400, 'INVALID_INPUT', 'VALIDATION_ERROR');
+    const user = { id: crypto.randomUUID(), fullName, preferredLang, email, phone, registeredAt: new Date().toISOString() };
+    this.profiles.set(phone, user);
+    return this.startSession(user);
   }
 
-  async discoverArtists(
-    params: DiscoverArtistsParams = {},
-  ): Promise<DiscoveryArtistsResponse> {
-    await waitWithAbort(220, params.signal);
-
-    const trimmedQuery = params.q?.trim() ?? '';
-    if (trimmedQuery.length > MAX_SEARCH_QUERY_LENGTH) {
-      throw new ApiClientError({
-        message: 'Search query exceeds maximum of 80 characters.',
-        code: 'INVALID_INPUT',
-        status: 400,
-        kind: 'VALIDATION_ERROR',
-      });
+  async login(payload: OtpLoginPayload): Promise<AuthSession> {
+    const email = this.consumeCode(payload);
+    const user = this.profiles.get(payload.phone);
+    if (!user || user.email?.toLowerCase() !== email.toLowerCase()) {
+      throw error(422, 'INVALID_OR_EXPIRED_OTP', 'UNPROCESSABLE_ENTITY');
     }
-
-    const limit = Math.min(Math.max(params.limit ?? 20, 1), 50);
-    const offset = params.cursor ? Number.parseInt(params.cursor, 10) || 0 : 0;
-
-    let pool = MOCK_ARTISTS;
-    if (trimmedQuery.length > 0) {
-      const needle = trimmedQuery.toLowerCase();
-      pool = MOCK_ARTISTS.filter(
-        (artist) =>
-          artist.displayName.toLowerCase().includes(needle) ||
-          artist.handle.toLowerCase().includes(needle) ||
-          artist.bio.toLowerCase().includes(needle) ||
-          (artist.genre && artist.genre.toLowerCase().includes(needle)) ||
-          (artist.city && artist.city.toLowerCase().includes(needle)),
-      );
-    }
-
-    const slice = pool.slice(offset, offset + limit);
-    const nextOffset = offset + slice.length;
-    const nextCursor = nextOffset < pool.length ? String(nextOffset) : null;
-
-    return {
-      items: slice,
-      nextCursor,
-    };
+    return this.startSession(user);
   }
 
-  async getPublicStorefront(params: GetStorefrontParams): Promise<StorefrontDetail> {
-    await waitWithAbort(200, params.signal);
-
-    const cleanHandle = normalizeHandle(params.handle).toLowerCase();
-    const artist = MOCK_ARTISTS.find(
-      (item) => item.handle.toLowerCase() === cleanHandle,
-    );
-
-    if (!artist) {
-      throw new ApiClientError({
-        message: `Storefront @${cleanHandle} was not found.`,
-        code: 'STOREFRONT_NOT_FOUND',
-        status: 404,
-        kind: 'NOT_FOUND',
-      });
-    }
-
-    const allPublishedProducts = (MOCK_PRODUCTS_BY_HANDLE[artist.handle] ?? []).filter(
-      (p) => p.splitsComplete,
-    );
-
-    const limit = Math.min(Math.max(params.limit ?? 12, 1), 50);
-    const offset = params.cursor ? Number.parseInt(params.cursor, 10) || 0 : 0;
-    const slice = allPublishedProducts.slice(offset, offset + limit);
-    const nextOffset = offset + slice.length;
-
-    return {
-      artist,
-      products: slice,
-      nextCursor: nextOffset < allPublishedProducts.length ? String(nextOffset) : null,
-    };
+  async refreshSession(refreshToken: string) {
+    if (!this.refresh.delete(refreshToken)) throw error(401, 'INVALID_TOKEN', 'UNAUTHORIZED');
+    return this.issueTokens();
   }
 
-  async initiateCheckout(params: CheckoutInitiateParams): Promise<CheckoutTransaction> {
-    await waitWithAbort(320);
-    const { request } = params;
+  async discoverArtists({ limit, cursor, q, signal }: DiscoverArtistsParams = {}) {
+    signal?.throwIfAborted();
+    const needle = q?.trim().toLowerCase() || '';
+    const artists = this.storefronts
+      .filter((artist) => artist.displayName.toLowerCase().includes(needle) || artist.handle.includes(needle))
+      .sort((a, b) => a.displayName.toLowerCase().localeCompare(b.displayName.toLowerCase()) || a.storefrontId.localeCompare(b.storefrontId))
+      .map(({ storefrontId, handle, displayName, bio, storefrontUrl }) => ({
+        storefrontId, handle, displayName, bio,
+        storefrontUrl: typeof window === 'undefined' ? storefrontUrl : new URL(storefrontUrl).pathname,
+      }));
+    return paginate(artists, cursor, limit);
+  }
 
-    if (
-      !isValidCameroonPhone(request.buyerPhone) ||
-      !isValidEmail(request.buyerEmail) ||
-      !isValidXafAmountMinor(request.expectedAmountMinor)
-    ) {
-      throw new ApiClientError({
-        message: 'Invalid checkout details.',
-        code: 'INVALID_INPUT',
-        status: 400,
-        kind: 'VALIDATION_ERROR',
-      });
+  private publicProducts(handle: string, id: string, currency: SupportedCurrency): StorefrontProduct[] {
+    const fixtures = (MOCK_PRODUCTS_BY_HANDLE[handle] ?? []).filter((product) => product.splitsComplete)
+      .map((product) => ({
+        productId: product.productId, description: product.description, type: demoType(typeCodes[product.type]),
+        prices: this.prices.get(product.productId) ?? [
+          { priceId: `${product.productId}-XAF`, currencyCode: 'XAF' as const, amountMinor: product.xafPrice },
+          ...((product.displayPrices ?? []).map((price) => ({
+            priceId: `${product.productId}-${price.currency}`, currencyCode: price.currency, amountMinor: Math.round(price.amount * 100),
+          }))),
+        ],
+      }));
+    const created = [...this.demoProducts.values()].filter((p) => p.storefrontId === id).map((p) => ({
+      productId: p.productId, description: p.description, type: p.type, prices: this.prices.get(p.productId) ?? [],
+    }));
+    return [...fixtures, ...created].sort((a, b) => a.productId.localeCompare(b.productId)).map((product) => ({
+      ...product,
+      previewUrl: null,
+      displayCurrency: product.prices.some((price) => price.currencyCode === currency) ? currency : 'XAF',
+      checkoutAvailable: product.prices.some((price) => price.currencyCode === 'XAF'),
+    }));
+  }
+
+  async getPublicStorefront({ handle, limit, cursor, signal, displayCurrency = 'XAF' }: GetStorefrontParams) {
+    signal?.throwIfAborted();
+    const storefront = this.storefronts.find((artist) => artist.handle === normalizeHandle(handle).toLowerCase());
+    if (!storefront) throw error(404, 'STOREFRONT_NOT_FOUND', 'NOT_FOUND');
+    const { items: products, nextCursor } = paginate(this.publicProducts(storefront.handle, storefront.storefrontId, displayCurrency), cursor, limit);
+    return { storefront, products, nextCursor };
+  }
+
+  async createStorefront(request: StorefrontCreateRequest) {
+    if (this.storefronts.some((item) => item.handle === request.handle)) throw error(409, 'HANDLE_TAKEN', 'CONFLICT');
+    const storefront = {
+      storefrontId: crypto.randomUUID(), handle: request.handle, displayName: request.displayName,
+      bio: request.bio ?? null, storefrontUrl: new URL(`/@${request.handle}`, window.location.origin).href,
+    };
+    this.storefronts.push(storefront);
+    return storefront;
+  }
+
+  async updateStorefront(id: string, request: StorefrontUpdateRequest) {
+    const index = this.storefronts.findIndex((storefront) => storefront.storefrontId === id);
+    const previous = this.storefronts[index];
+    if (!previous) throw error(404, 'STOREFRONT_NOT_FOUND', 'NOT_FOUND');
+    const updated = { ...previous, ...request };
+    this.storefronts[index] = updated;
+    return updated;
+  }
+
+  async uploadProfileImage(): ReturnType<IApiAdapter['uploadProfileImage']> {
+    throw error(503, 'DEMO_UNAVAILABLE', 'SERVICE_UNAVAILABLE');
+  }
+
+  async removeProfileImage(): ReturnType<IApiAdapter['removeProfileImage']> {
+    throw error(503, 'DEMO_UNAVAILABLE', 'SERVICE_UNAVAILABLE');
+  }
+
+  async getActiveSplit(): ReturnType<IApiAdapter['getActiveSplit']> {
+    throw error(503, 'DEMO_UNAVAILABLE', 'SERVICE_UNAVAILABLE');
+  }
+
+  async createProduct(storefrontId: string, request: ProductCreateRequest) {
+    if (!this.storefronts.some((item) => item.storefrontId === storefrontId)) throw error(404, 'STOREFRONT_NOT_FOUND', 'NOT_FOUND');
+    if (request.videoPreviewFile) throw error(503, 'DEMO_UNAVAILABLE', 'SERVICE_UNAVAILABLE');
+    const productId = crypto.randomUUID();
+    if (request.videoFile) this.demoMedia.set(`${productId}/video`, request.videoFile);
+    if (request.audioFile) this.demoMedia.set(`${productId}/audio`, request.audioFile);
+    const product = {
+      productId, storefrontId, type: demoType(request.typeCode), description: request.description ?? null,
+      videoUrl: request.videoFile ? `/api/v1/products/${productId}/media/video` : null,
+      audioUrl: request.audioFile ? `/api/v1/products/${productId}/media/audio` : null,
+    };
+    this.demoProducts.set(productId, product);
+    return product;
+  }
+
+  async replacePrices(productId: string, { local, diaspora }: PriceReplacement) {
+    const prior = this.prices.get(productId);
+    const prices = (diaspora ? [local, diaspora] : [local]).map((price) => ({
+      ...price, priceId: prior?.find((item) => item.currencyCode === price.currencyCode)?.priceId ?? crypto.randomUUID(),
+    }));
+    this.prices.set(productId, prices);
+    return { productId, prices };
+  }
+
+  async getProductMedia(productId: string, kind: 'audio' | 'video') {
+    const media = this.demoMedia.get(`${productId}/${kind}`);
+    if (!media) throw error(404, 'MEDIA_NOT_FOUND', 'NOT_FOUND');
+    return media;
+  }
+
+  async createSplit(): ReturnType<IApiAdapter['createSplit']> {
+    throw error(503, 'INVITATION_UNAVAILABLE', 'SERVICE_UNAVAILABLE');
+  }
+
+  async initiateCheckout({ request, idempotencyKey }: CheckoutInitiateParams) {
+    const fingerprint = JSON.stringify(request);
+    const prior = this.attempts.get(idempotencyKey);
+    if (prior) {
+      if (prior.fingerprint !== fingerprint) throw error(409, 'IDEMPOTENCY_CONFLICT', 'CONFLICT');
+      return prior.tx;
     }
-
-    const resolvedRail = request.rail === 'orange' ? 'orange' : 'mtn';
-    const txId = `mock_tx_${Date.now()}`;
     const tx: CheckoutTransaction = {
-      transactionId: txId,
-      currencyCode: 'XAF',
-      amountMinor: request.expectedAmountMinor,
-      createdAt: new Date().toISOString(),
-      confirmedAt: null,
-      isRegisteredBuyer: false,
-      status: 'PENDING',
-      rail: resolvedRail,
-      guestSessionToken: `mock_guest_${Date.now()}`,
-      guestSessionExpiresAt: new Date(Date.now() + 15 * 60 * 1000).toISOString(),
-      isMockDemo: true,
+      transactionId: crypto.randomUUID(), currencyCode: 'XAF', amountMinor: request.expectedAmountMinor,
+      createdAt: new Date().toISOString(), confirmedAt: null, isRegisteredBuyer: false, status: 'PENDING',
+      rail: request.rail === 'orange' ? 'orange' : 'mtn', guestSessionToken: crypto.randomUUID(),
+      guestSessionExpiresAt: new Date(Date.now() + 86_400_000).toISOString(), isMockDemo: true,
     };
-
-    mockTransactions.set(txId, { tx, pollCount: 0 });
+    this.transactions.set(tx.transactionId, { tx, polls: 0 });
+    this.attempts.set(idempotencyKey, { fingerprint, tx });
     return tx;
   }
 
-  async getCheckoutStatus(
-    transactionId: string,
-    _guestSessionToken?: string,
-    signal?: AbortSignal,
-  ): Promise<CheckoutTransaction> {
-    await waitWithAbort(220, signal);
-    const entry = mockTransactions.get(transactionId);
-    if (!entry) {
-      throw new ApiClientError({
-        message: 'Transaction not found.',
-        code: 'TRANSACTION_NOT_FOUND',
-        status: 404,
-        kind: 'NOT_FOUND',
-      });
-    }
-
-    entry.pollCount += 1;
-    if (entry.pollCount >= 2 && entry.tx.status === 'PENDING') {
-      entry.tx = {
-        ...entry.tx,
-        status: 'SUCCESS',
-        confirmedAt: new Date().toISOString(),
-      };
-    }
-
-    return { ...entry.tx };
+  async getCheckoutStatus(id: string, guestSessionToken?: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    const entry = this.transactions.get(id);
+    if (!entry) throw error(404, 'TRANSACTION_NOT_FOUND', 'NOT_FOUND');
+    if (guestSessionToken !== entry.tx.guestSessionToken) throw error(401, 'UNAUTHENTICATED', 'UNAUTHORIZED');
+    if (Date.parse(entry.tx.guestSessionExpiresAt ?? '') <= Date.now()) throw error(410, 'CHECKOUT_SESSION_EXPIRED', 'GONE');
+    const { guestSessionToken: _token, guestSessionExpiresAt: _expiry, ...status } = entry.tx;
+    return { ...status, status: ++entry.polls > 1 ? 'SUCCESS' as const : status.status };
   }
 
-  async getSplitInvitation(
-    inviteId: string,
-    inviteToken: string,
-  ): Promise<SplitInvitationDetail> {
-    await waitWithAbort(200);
-    if (!inviteToken) {
-      throw new ApiClientError({
-        message: 'Missing X-Invite-Token header.',
-        code: 'MISSING_INVITE_TOKEN',
-        status: 401,
-        kind: 'UNAUTHORIZED',
-      });
-    }
-
-    const found = MOCK_SPLIT_INVITATIONS[inviteId];
-    if (!found) {
-      throw new ApiClientError({
-        message: 'Split invitation not found.',
-        code: 'INVITE_NOT_FOUND',
-        status: 404,
-        kind: 'NOT_FOUND',
-      });
-    }
-    return { ...found };
+  async getSplitInvitation(id: string, inviteToken: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
+    if (id === 'inv_expired_04' && inviteToken) throw error(410, 'INVITATION_EXPIRED', 'GONE');
+    const invite = MOCK_SPLIT_INVITATIONS[id];
+    if (!inviteToken || !invite) throw error(404, 'INVITATION_NOT_FOUND', 'NOT_FOUND');
+    return invite;
   }
 
-  async respondToSplitInvitation(
-    inviteId: string,
-    inviteToken: string,
-    decision: 'ACCEPT' | 'REJECT',
-  ): Promise<SplitInvitationDetail> {
-    await waitWithAbort(250);
-    if (!inviteToken) {
-      throw new ApiClientError({
-        message: 'Missing X-Invite-Token header.',
-        code: 'MISSING_INVITE_TOKEN',
-        status: 401,
-        kind: 'UNAUTHORIZED',
-      });
-    }
-
-    const found = MOCK_SPLIT_INVITATIONS[inviteId];
-    if (!found) {
-      throw new ApiClientError({
-        message: 'Split invitation not found.',
-        code: 'INVITE_NOT_FOUND',
-        status: 404,
-        kind: 'NOT_FOUND',
-      });
-    }
-
-    const updated: SplitInvitationDetail = {
-      ...found,
-      status: decision === 'ACCEPT' ? 'ACCEPTED' : 'REJECTED',
-    };
-    MOCK_SPLIT_INVITATIONS[inviteId] = updated;
-    return updated;
+  async respondToSplitInvitation(): ReturnType<IApiAdapter['respondToSplitInvitation']> {
+    throw error(401, 'UNAUTHENTICATED', 'UNAUTHORIZED');
   }
 }

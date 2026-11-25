@@ -33,3 +33,14 @@ export function extractInviteTokenFromHash(hash: string): string | null {
 
   return cleaned;
 }
+
+export function publicMediaUrl(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  const apiUrl = new URL(env.apiBaseUrl, window.location.origin);
+  try {
+    const source = new URL(url, apiUrl);
+    return source.protocol === 'http:' || source.protocol === 'https:' ? source.href : undefined;
+  } catch {
+    return undefined;
+  }
+}

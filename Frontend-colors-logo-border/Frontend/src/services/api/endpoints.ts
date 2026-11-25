@@ -1,18 +1,18 @@
 export const API_ENDPOINTS = {
   AUTH_OTP_REQUEST: '/auth/otp/request',
   AUTH_OTP_VERIFY: '/auth/otp/verify',
+  AUTH_LOGIN: '/auth/login',
+  AUTH_REFRESH: '/auth/refresh',
   ARTISTS_DISCOVERY: '/artists',
   STOREFRONT_PUBLIC: (handle: string) => `/storefront/${encodeURIComponent(handle)}`,
   STOREFRONTS_CREATE: '/storefronts',
-  STOREFRONTS_UPDATE: (storefrontId: string) =>
-    `/storefronts/${encodeURIComponent(storefrontId)}`,
-  STOREFRONT_PRODUCTS_CREATE: (storefrontId: string) =>
-    `/storefronts/${encodeURIComponent(storefrontId)}/products`,
-  PRODUCT_PRICES_PUT: (productId: string) =>
-    `/products/${encodeURIComponent(productId)}/prices`,
+  STOREFRONTS_UPDATE: (id: string) => `/storefronts/${encodeURIComponent(id)}`,
+  STOREFRONT_PROFILE_IMAGE: (id: string) => `/storefronts/${encodeURIComponent(id)}/profile-image`,
+  STOREFRONT_PRODUCTS_CREATE: (id: string) => `/storefronts/${encodeURIComponent(id)}/products`,
+  PRODUCT_MEDIA: (id: string, kind: 'audio' | 'video') => `/products/${encodeURIComponent(id)}/media/${kind}`,
+  PRODUCT_PRICES_PUT: (id: string) => `/products/${encodeURIComponent(id)}/prices`,
+  PRODUCT_SPLITS: (id: string) => `/products/${encodeURIComponent(id)}/splits`,
   CHECKOUT_INITIATE: '/checkout/initiate',
-  CHECKOUT_STATUS: (transactionId: string) =>
-    `/checkout/${encodeURIComponent(transactionId)}`,
-  SPLIT_INVITE_DECISION: (inviteId: string) =>
-    `/split-invitations/${encodeURIComponent(inviteId)}/decision`,
+  CHECKOUT_STATUS: (id: string) => `/checkout/${encodeURIComponent(id)}`,
+  SPLIT_INVITE_DECISION: (id: string) => `/split-invitations/${encodeURIComponent(id)}/decision`,
 } as const;
