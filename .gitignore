@@ -4,4 +4,8 @@ documentation/*
 /.env
 *.venv
 /.tools/
-/supabase
+/supabase/*
+!/supabase/migrations/
+/supabase/migrations/*
+!/supabase/migrations/*.sql
+/tests

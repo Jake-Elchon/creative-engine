@@ -14,6 +14,7 @@ REQUEST_WINDOW = timedelta(minutes=10)
 MAX_PHONES = 1024
 MAX_REQUESTS = 3
 MAX_ATTEMPTS = 5
+REQUEST_LIMIT_PAUSED_UNTIL = datetime(2027, 1, 25, tzinfo=UTC)
 
 
 @dataclass
@@ -51,12 +52,12 @@ def issue_code(phone: str, email: str) -> tuple[str, datetime]:
         if previous is None and len(_challenges) >= MAX_PHONES:
             raise ApiError(503, "OTP_CACHE_FULL", "The OTP cache is full. Try again later.")
         recent = [sent for sent in previous.requested_at if sent > cutoff] if previous else []
-        if len(recent) >= MAX_REQUESTS:
+        if now >= REQUEST_LIMIT_PAUSED_UNTIL and len(recent) >= MAX_REQUESTS:
             raise rate_limited((recent[0] - cutoff).total_seconds())
 
         code = f"{randbelow(1_000_000):06d}"
         expires_at = now + OTP_LIFETIME
-        _challenges[phone] = Challenge(email, code, expires_at, [*recent, now])
+        _challenges[phone] = Challenge(email, code, expires_at, [*recent, now][-MAX_REQUESTS:])
         return code, expires_at
 
 

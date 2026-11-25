@@ -5,20 +5,14 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Request
 from psycopg import Connection
 from pydantic import Field
+from starlette.datastructures import UploadFile
 
 from .api_support import ApiError, Payload, database, path_id, require_user, respond
+from .product_media import PRODUCT_CREATE_BODY, ProductCreate, media_response, product_upload, read_media
 
 router = APIRouter(tags=["Product management"])
 
-AssetKey = Annotated[str, Field(min_length=1, max_length=255, pattern=r"^[^\x00]+$")]
 Amount = Annotated[int, Field(strict=True, gt=0, le=2147483647)]
-
-
-class ProductCreate(Payload):
-    typeCode: Annotated[str, Field(min_length=1, max_length=12, pattern=r"^[^\x00]+$")]
-    description: Annotated[str, Field(max_length=120, pattern=r"^[^\x00]*$")] | None = None
-    masterFileKey: AssetKey | None = None
-    previewFileKey: AssetKey | None = None
 
 
 class LocalPrice(Payload):
@@ -36,61 +30,114 @@ class PriceSet(Payload):
     diaspora: DiasporaPrice | None = None
 
 
-@router.post("/storefronts/{storefrontId}/products", status_code=201)
+@router.post("/storefronts/{storefrontId}/products", status_code=201, openapi_extra=PRODUCT_CREATE_BODY)
 def create_product(
     storefrontId: str,
-    body: ProductCreate,
     request: Request,
     user: dict = Depends(require_user),
     db: Connection = Depends(database),
+    upload: tuple[ProductCreate, dict[str, UploadFile]] = Depends(product_upload),
 ):
     storefront_id = path_id(storefrontId, "STOREFRONT_NOT_FOUND")
-    # Authorize the catalog owner before reading any referenced assets.
+    # Ownership is checked before loading any of the spooled files into memory.
     if db.execute(
         "select id from cimfest.storefronts where id = %s and creator_id = %s",
         (storefront_id, user["id"]),
     ).fetchone() is None:
         raise ApiError(404, "STOREFRONT_NOT_FOUND", "Storefront not found.")
 
+    body, files = upload
     product_type = db.execute(
-        "select id, type, name, requires_master_file from cimfest.product_types where type = %s",
+        "select id, type, name, requires_media from cimfest.product_types where type = %s",
         (body.typeCode,),
     ).fetchone()
     if product_type is None:
         raise ApiError(422, "INVALID_PRODUCT", "Unknown product type.")
-    if product_type["requires_master_file"] and body.masterFileKey is None:
-        raise ApiError(422, "INVALID_PRODUCT", "This product type requires a master file.")
+    # Media-required types accept either file field. Each supplied file still
+    # has to pass the format and size checks for its own role.
+    if product_type["requires_media"] and not files:
+        raise ApiError(422, "INVALID_PRODUCT", "This product type requires videoFile or audioFile.")
 
-    # Check ownership, approval and purpose together. A private master cannot be a preview.
-    references = [
-        (key, kind) for key, kind in ((body.masterFileKey, "master"), (body.previewFileKey, "preview"))
-        if key is not None
-    ]
-    if references:
-        rows = db.execute(
-            """
-            select file_key, kind from cimfest.catalog_assets
-            where creator_id = %s and approved_at is not null and file_key = any(%s)
-            order by file_key for share
-            """,
-            (user["id"], [key for key, _ in references]),
-        ).fetchall()
-        if {(row["file_key"], row["kind"]) for row in rows} != set(references):
-            raise ApiError(422, "INVALID_PRODUCT", "Use approved assets for the specified file roles.")
-
+    # Product metadata and binary uploads share one transaction. If either
+    # upload fails validation or storage, the product insert rolls back too.
     product = db.execute(
         """
-        insert into cimfest.products
-            (storefront_id, type_id, description, master_file_key, preview_file_key)
-        values (%s, %s, %s, %s, %s) returning id
+        insert into cimfest.products (storefront_id, type_id, description)
+        values (%s, %s, %s) returning id
         """,
-        (storefront_id, product_type["id"], body.description, body.masterFileKey, body.previewFileKey),
+        (storefront_id, product_type["id"], body.description),
     ).fetchone()
+    for kind in ("video", "audio"):
+        file = files.get(f"{kind}File")
+        if file is None:
+            continue
+        content_type, data = read_media(kind, file)
+        db.execute(
+            """
+            insert into cimfest.product_media (product_id, kind, content_type, file_data)
+            values (%s, %s, %s, %s)
+            """,
+            (product["id"], kind, content_type, data),
+        )
     db.commit()
+
+    # These URLs point at access-checked endpoints. The audio URL becomes
+    # public once the product meets the price and split requirements.
     return respond(request, {
         "productId": product["id"], "storefrontId": storefront_id, "description": body.description,
         "type": {"id": product_type["id"], "code": product_type["type"], "name": product_type["name"]},
+        "videoUrl": str(request.url_for("get_product_video", productId=product["id"])) if "videoFile" in files else None,
+        "audioUrl": str(request.url_for("get_product_audio", productId=product["id"])) if "audioFile" in files else None,
     }, 201)
+
+
+@router.get("/products/{productId}/media/video")
+def get_product_video(
+    productId: str, request: Request,
+    user: dict = Depends(require_user), db: Connection = Depends(database),
+):
+    product_id = path_id(productId, "MEDIA_NOT_FOUND")
+    # Keep the video private even after the product appears in the catalog.
+    # The purchase flow currently has no confirmed-download authorization.
+    row = db.execute(
+        """
+        select m.content_type, m.file_data
+        from cimfest.product_media m
+        join cimfest.products p on p.id = m.product_id
+        join cimfest.storefronts s on s.id = p.storefront_id
+        where m.product_id = %s and m.kind = 'video' and s.creator_id = %s
+        """,
+        (product_id, user["id"]),
+    ).fetchone()
+    if row is None:
+        raise ApiError(404, "MEDIA_NOT_FOUND", "Media not found.")
+    return media_response(request, row, "private, no-store")
+
+
+@router.get("/products/{productId}/media/audio")
+def get_product_audio(productId: str, request: Request, db: Connection = Depends(database)):
+    product_id = path_id(productId, "MEDIA_NOT_FOUND")
+    # Product metadata can appear before pricing. Require an XAF price and a
+    # complete split (if any) before serving the actual audio to the public.
+    row = db.execute(
+        """
+        select m.content_type, m.file_data
+        from cimfest.product_media m
+        where m.product_id = %s and m.kind = 'audio'
+          and exists (
+              select 1 from cimfest.product_prices p
+              where p.product_id = m.product_id and p.currency_code = 'XAF'
+          )
+          and not exists (
+              select 1 from cimfest.split_sheets s
+              where s.product_id = m.product_id and s.active and not s.completed
+          )
+        """,
+        (product_id,),
+    ).fetchone()
+    if row is None:
+        raise ApiError(404, "MEDIA_NOT_FOUND", "Media not found.")
+    return media_response(request, row, "no-cache")
 
 
 @router.put("/products/{productId}/prices")

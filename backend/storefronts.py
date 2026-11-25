@@ -4,7 +4,6 @@ import base64
 import binascii
 import os
 from typing import Annotated, Literal
-from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -118,37 +117,46 @@ def get_storefront(
     ).fetchone()
     if storefront is None:
         raise ApiError(404, "STOREFRONT_NOT_FOUND", "Storefront not found.")
-    # Filter eligibility before paginating and aggregate prices in the same read.
+    # Keep products without prices in the catalog. An empty price array is
+    # useful for display, while XAF eligibility still gates checkout and audio.
+    # Probe the audio row by its key so the listing never reads the file bytes.
     rows = db.execute(
         """
-        select p.id, p.description, p.preview_file_key,
+        select p.id, p.description,
+               exists (
+                   select 1 from cimfest.product_media m
+                   where m.product_id = p.id and m.kind = 'audio'
+               ) as has_audio,
                jsonb_build_object('id', t.id, 'code', t.type, 'name', t.name) as type,
-               prices.values as prices
+               prices.values as prices, prices.has_xaf
         from cimfest.products p
         join cimfest.product_types t on t.id = p.type_id
         left join cimfest.split_sheets s on s.product_id = p.id and s.active
         join lateral (
-            select jsonb_agg(jsonb_build_object(
+            select coalesce(jsonb_agg(jsonb_build_object(
                 'priceId', x.id, 'currencyCode', x.currency_code, 'amountMinor', x.amount_minor
-            ) order by x.currency_code) as values,
-            bool_or(x.currency_code = 'XAF') as has_xaf
+            ) order by x.currency_code), '[]'::jsonb) as values,
+            coalesce(bool_or(x.currency_code = 'XAF'), false) as has_xaf
             from cimfest.product_prices x where x.product_id = p.id
-        ) prices on prices.has_xaf
+        ) prices on true
         where p.storefront_id = %s and (%s::uuid is null or p.id > %s)
           and (s.id is null or s.completed)
         order by p.id limit %s
         """,
         (storefront["id"], after, after, limit + 1),
     ).fetchall()
-    preview_root = os.getenv("CIMFEST_PREVIEW_BASE_URL", "").rstrip("/")
     products = []
     for row in rows[:limit]:
         currencies = {price["currencyCode"] for price in row["prices"]}
-        key = row["preview_file_key"]
+        # Only link to the public audio route once that route can serve it.
+        preview_url = None
+        if row["has_audio"] and row["has_xaf"]:
+            preview_url = str(request.url_for("get_product_audio", productId=row["id"]))
         products.append({
             "productId": row["id"], "description": row["description"], "type": row["type"],
-            "previewUrl": f"{preview_root}/{quote(key, safe='')}" if preview_root and key else None,
+            "previewUrl": preview_url,
             "prices": row["prices"], "displayCurrency": displayCurrency if displayCurrency in currencies else "XAF",
+            "checkoutAvailable": row["has_xaf"],
         })
     return respond(request, {
         "storefront": profile(storefront), "products": products,

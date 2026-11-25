@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 
-from . import artists, checkout, products, registration, splits, storefronts
+from . import artists, checkout, fapshi_checkout, products, registration, splits, storefronts
 from .api_support import ApiError, error_response, new_request_id
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -18,6 +18,7 @@ app.include_router(storefronts.router, prefix="/api/v1")
 app.include_router(artists.router, prefix="/api/v1")
 app.include_router(products.router, prefix="/api/v1")
 app.include_router(checkout.router, prefix="/api/v1")
+app.include_router(fapshi_checkout.router, prefix="/api/v1")
 app.include_router(splits.router, prefix="/api/v1")
 
 

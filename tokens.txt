@@ -1,0 +1,7 @@
+toto: 
+token = cimfest_local_access_KGGv_evdHYnJqpxAzfZ4ozG_gdy2EMU9IGiR_8IzQD0
+storefront_1 = 59abb91f-509b-419f-be02-02c13c974f49
+- product3 = 6f23cdb5-cead-49bd-a3de-770360a12034
+
+
+tata: 

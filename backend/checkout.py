@@ -1,4 +1,4 @@
-﻿"""Checkout initiation and status reads. Payment dispatch is a separate integration."""
+﻿"""Checkout initiation and buyer-authorized payment status reads."""
 
 import hmac
 import os
@@ -16,6 +16,8 @@ from .api_support import (
     ApiError, CameroonPhone, Email, Payload, authenticated_user, database, digest, idempotency_key,
     opaque_token, path_id, replay_data, request_hash, respond,
 )
+from .fapshi import MIN_AMOUNT_XAF, FapshiClient
+from .fapshi_checkout import dispatch_error, dispatch_payment, reconcile_checkout
 
 router = APIRouter(tags=["Checkout management"])
 NO_STORE = {"Cache-Control": "no-store"}
@@ -87,8 +89,9 @@ def initiate_checkout(
     db.execute("select pg_advisory_xact_lock(hashtextextended(%s, 0))", (f"checkout:{key}",))
     previous = db.execute(
         """
-        select c.request_hash, c.replay_response from cimfest.transactions t
+        select c.request_hash, c.replay_response, f.dispatch_rejected from cimfest.transactions t
         left join cimfest.checkout_intents c on c.transaction_id = t.id
+        left join cimfest.fapshi_payments f on f.transaction_id = t.id
         where t.idempotency_key = %s
         """,
         (key,),
@@ -98,6 +101,8 @@ def initiate_checkout(
             raise ApiError(409, "IDEMPOTENCY_CONFLICT", "This key is already in use.")
         data = replay_data(previous, fingerprint, "replay_response")
         db.commit()
+        if previous["dispatch_rejected"]:
+            raise dispatch_error()
         return checkout_response(request, data, buyer_id)
 
     # Hold the product lock while reading the current price and active split.
@@ -123,6 +128,8 @@ def initiate_checkout(
     amount = price["amount_minor"]
     if amount != body.expectedAmountMinor:
         raise ApiError(409, "PRICE_CHANGED", "The XAF price has changed.")
+    if amount < MIN_AMOUNT_XAF:
+        raise ApiError(409, "PRODUCT_UNAVAILABLE", f"Fapshi requires a price of at least {MIN_AMOUNT_XAF} XAF.")
 
     if split:
         snapshot = db.execute(
@@ -137,6 +144,8 @@ def initiate_checkout(
     else:
         snapshot = [{"userId": product["creator_id"], "shareBps": 10000}]
 
+    if not body.buyerPhone.startswith("+2376"):
+        raise ApiError(422, "UNSUPPORTED_NETWORK", "Use a Cameroonian mobile number beginning with +2376.")
     rail = payment_rail(body)
     method = db.execute(
         """
@@ -150,6 +159,9 @@ def initiate_checkout(
     if method is None:
         raise ApiError(503, "PAYMENT_UNAVAILABLE", "This operator is unavailable for the storefront.")
 
+    # Missing credentials fail before making a pending purchase or locking
+    # its split. Once committed, the provider attempt belongs to this checkout.
+    client = FapshiClient()
     # Persist the pending purchase, item and frozen allocation together before provider handoff.
     transaction_id = uuid4()
     guest_token = opaque_token("checkout", transaction_id) if buyer_id is None else None
@@ -183,8 +195,9 @@ def initiate_checkout(
          split["id"] if split else None, Jsonb(jsonable_encoder(snapshot)),
          Jsonb(jsonable_encoder(data)), digest(guest_token) if guest_token else None, expiry),
     )
+    db.execute("insert into cimfest.fapshi_payments (transaction_id) values (%s)", (transaction_id,))
     db.commit()
-    # Payment adapter boundary: use transaction_id as the provider reference after commit.
+    dispatch_payment(db, client, transaction_id, amount, body.buyerPhone, normalized["buyerEmail"], rail)
     return checkout_response(request, data, buyer_id)
 
 
@@ -223,4 +236,10 @@ def checkout_status(
             raise not_found
         if expired:
             raise ApiError(410, "CHECKOUT_SESSION_EXPIRED", "The checkout session has expired.")
+    # A missed webhook can be recovered with the buyer's existing status
+    # endpoint. Unauthorized callers never trigger provider reconciliation.
+    if row["status"] == "PENDING" and reconcile_checkout(db, transaction_id):
+        row = db.execute(
+            f"select {TRANSACTION_FIELDS} {TRANSACTION_FROM} where t.id = %s", (transaction_id,),
+        ).fetchone()
     return respond(request, row, **NO_STORE)
