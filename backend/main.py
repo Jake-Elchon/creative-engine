@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 
-from . import artists, checkout, fapshi_checkout, products, registration, splits, storefronts
+from . import artists, checkout, fapshi_checkout, products, registration, splits, storefronts, studio
 from .api_support import ApiError, error_response, new_request_id
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
@@ -20,6 +20,7 @@ app.include_router(products.router, prefix="/api/v1")
 app.include_router(checkout.router, prefix="/api/v1")
 app.include_router(fapshi_checkout.router, prefix="/api/v1")
 app.include_router(splits.router, prefix="/api/v1")
+app.include_router(studio.router, prefix="/api/v1")
 
 
 @app.middleware("http")
@@ -39,6 +40,8 @@ async def handle_validation_error(request: Request, error: RequestValidationErro
     status, code = {
         "request_otp": (400, "INVALID_INPUT"),
         "verify_otp": (400, "INVALID_INPUT"),
+        "login": (400, "INVALID_INPUT"),
+        "get_studio_inventory": (400, "INVALID_QUERY"),
         "get_artists": (400, "INVALID_QUERY"),
         "get_storefront": (400, "INVALID_QUERY"),
         "create_product": (422, "INVALID_PRODUCT"),

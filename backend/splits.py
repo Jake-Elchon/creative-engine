@@ -1,4 +1,4 @@
-﻿"""Version split sheets, queue invitations and record verified collaborator decisions."""
+"""Version split sheets, queue invitations and record verified collaborator decisions."""
 
 import hmac
 import os
@@ -65,11 +65,43 @@ def add_collaborator(db: Connection, split_id: UUID, user_id: UUID, share_bps: i
     )
 
 
+@router.get("/products/{productId}/splits")
+def get_active_split(
+    productId: str, request: Request,
+    user: dict = Depends(require_user), db: Connection = Depends(database),
+):
+    product_id = path_id(productId, "PRODUCT_NOT_FOUND")
+    row = db.execute(
+        """
+        select p.id as "productId", s.id as "splitId", s.group_id as "groupId", s.completed,
+               coalesce((
+                   select jsonb_agg(jsonb_build_object(
+                       'inviteId', i.id, 'phone', i.invited_phone, 'shareBps', i.share_bps,
+                       'status', case when i.status = 'PENDING' and i.expires_at <= now()
+                                      then 'EXPIRED' else i.status end,
+                       'collaboratorId', i.collaborator_user_id
+                   ) order by i.invited_phone)
+                   from cimfest.split_invitations i where i.split_id = s.id
+               ), '[]'::jsonb) as invitations
+        from cimfest.products p
+        join cimfest.storefronts f on f.id = p.storefront_id
+        left join cimfest.split_sheets s on s.product_id = p.id and s.active
+        where p.id = %s and f.creator_id = %s
+        """,
+        (product_id, user["id"]),
+    ).fetchone()
+    if row is None:
+        raise ApiError(404, "PRODUCT_NOT_FOUND", "Product not found.")
+    return respond(request, row if row["splitId"] is not None else None, **NO_STORE)
+
+
 @router.post("/products/{productId}/splits", status_code=201)
 def create_split(
     productId: str, body: SplitRequest, request: Request,
     user: dict = Depends(require_user), db: Connection = Depends(database),
     key: str | None = Header(default=None, alias="Idempotency-Key"),
+    if_match: str | None = Header(default=None, alias="If-Match"),
+    if_none_match: Literal["*"] | None = Header(default=None, alias="If-None-Match"),
 ):
     key = idempotency_key(key, 422, "INVALID_SPLITS")
     product_id = path_id(productId, "PRODUCT_NOT_FOUND")
@@ -95,6 +127,18 @@ def create_split(
         data = replay_data(previous, fingerprint, "response")
         db.commit()
         return respond(request, data, 201, **NO_STORE)
+
+    if if_match is not None and if_none_match is not None:
+        raise ApiError(422, "INVALID_SPLITS", "Use only one split version precondition.")
+    if if_match is not None or if_none_match is not None:
+        active = db.execute(
+            "select id from cimfest.split_sheets where product_id = %s and active",
+            (product_id,),
+        ).fetchone()
+        if (if_none_match == "*" and active is not None) or (
+            if_match is not None and (active is None or if_match != f'"{active["id"]}"')
+        ):
+            raise ApiError(412, "SPLIT_VERSION_CHANGED", "The active agreement changed. Reload it before submitting.")
 
     if body.groupId is not None and db.execute(
         "select 1 from cimfest.group_founders where group_id = %s and user_id = %s for share",

@@ -150,13 +150,17 @@ scenario. See [Direct Pay](https://docs.fapshi.com/en/api-reference/endpoint/dir
 [webhooks](https://docs.fapshi.com/en/api-reference/endpoint/webhook), and
 [sandbox numbers](https://docs.fapshi.com/en/api-reference/preliminary-knowledge/environment).
 
-## Registration, artist discovery and catalog writes
+## Registration, login, artist discovery and catalog writes
+
+The [Word API design](../documentation/KamerPay_Studio_API_Design%20-%20Create%20Account%20and%20Log%20In.docx)
+includes the Create account and Log in page states, endpoint errors and shared home response.
 
 | Method and path under `/api/v1` | Inputs | Result |
 | --- | --- | --- |
-| `POST /auth/otp/request` | Cameroonian `phone` and `email` | 202 with `data.code` and `data.expiresAt`. |
-| `POST /auth/otp/verify` | `phone` and the six-digit string `code`. First registration requires `fullName` and `preferredLang` (`en` or `fr`). If supplied, `email` must match the request. | 200 with local access and refresh tokens, the user profile, and `home` containing up to six artist cards. |
-| `POST /auth/refresh` | `refreshToken` from local verification or a previous refresh | 200 with a new access and refresh token pair. |
+| `POST /auth/otp/request` | Cameroonian `phone` and `email` | 202 with `data.code`, `data.expiresAt` and `data.nextAction` (`register` or `login`). |
+| `POST /auth/otp/verify` | `phone`, six-digit string `code`, `fullName` and `preferredLang` (`en` or `fr`). Optional `email` must match the OTP request. | 200 with a session, profile and home seed for a new account. A matching existing account returns 409 `LOGIN_REQUIRED`. |
+| `POST /auth/login` | `phone` and six-digit string `code`. Optional `email` must match the OTP request. | 200 with a session, the existing database profile and the same home seed as registration. |
+| `POST /auth/refresh` | `refreshToken` from registration, login or a previous refresh | 200 with a new access and refresh token pair. |
 | `GET /artists` | Optional `q`, `limit` (1–50, default 20), and `cursor` | 200 with `items` and `nextCursor`. Search matches the handle or display name by case-insensitive substring. |
 | `POST /storefronts/{storefrontId}/products` | Owner's Bearer token, `typeCode`, optional `description`, and multipart files `videoFile` and `audioFile` | 201 with the product ID, type, and URLs for uploaded media. Media-free requests also accept JSON. |
 | `GET /products/{productId}/media/video` | Owner's Bearer token and optional `Range` header | The uploaded video. |
@@ -174,10 +178,13 @@ request replaces the previous code. Successful verification consumes it.
 A 429 includes `Retry-After`.
 
 First registration saves the email from the code request. Returning users
-request a code with their registered phone and email. Access tokens expire
-after one hour and refresh tokens expire after 30 days. Refresh rotates both
-tokens. The catalog seed runs after the profile commit with a 250 ms statement
-timeout. The app can retry `GET /artists?limit=6` if `home.status` is `unavailable`.
+request a code with their registered phone and email. When `nextAction` is
+`login`, prompt for the OTP and submit it to `/auth/login`. If verification
+returns `LOGIN_REQUIRED`, switch to login and request a fresh code. Access
+tokens expire after one hour and refresh tokens expire after 30 days. Refresh
+rotates both tokens. The catalog seed runs after the session commit with a
+250 ms statement timeout. The app can retry `GET /artists?limit=6` if
+`home.status` is `unavailable`.
 
 Artist discovery includes every storefront with its public handle, including
 storefronts that are still setting up a catalog. A cursor continues a specific
@@ -207,18 +214,82 @@ sees one complete price set. Checkout charges XAF.
 
 ### Manual test sequence
 
-1. In `/docs`, submit `phone` and `email` to `POST /api/v1/auth/otp/request`.
-   Copy `data.code` from the 202 response.
-2. Submit the code with the same phone to `POST /api/v1/auth/otp/verify`, then
-   use the returned access token as
-   `Authorization: Bearer <token>` on creator routes. Create a storefront and
-   start with a `tip` product to test catalog and pricing without media setup.
-   For a media product, attach the file directly in the multipart request.
-3. Set the price to XAF 1000 and EUR 300, request the public storefront with
+1. In `/docs`, submit a new `phone` and `email` to `POST /api/v1/auth/otp/request`.
+   Check for `nextAction: register` and copy `data.code`.
+2. Submit the code, same phone, name and language to `POST /api/v1/auth/otp/verify`.
+   Request a fresh code with the same phone and email and check for `nextAction: login`.
+   Post the new code and phone to `POST /api/v1/auth/login` and compare the returned profile.
+3. Use the access token as `Authorization: Bearer <token>` on creator routes.
+   Create a storefront and a `tip` product to test pricing. For a media product,
+   attach the file directly in the multipart request.
+4. Set the price to XAF 1000 and EUR 300, request the public storefront with
    `displayCurrency=EUR`, then replace the prices with XAF only and check that
    display falls back to XAF. Use a second creator's token to check that the
    product and price writes return 404 for a non-owner.
-4. Create several storefronts and compare `GET /artists?limit=6` with
+5. Create several storefronts and compare `GET /artists?limit=6` with
    `GET /artists?q=<substring>&limit=6`. Follow `nextCursor` with the same
    query and check for duplicated or missing cards. For timing, repeat calls
    with a warm server and record the dataset size.
+
+
+## Creator Studio inventory, video previews and split status
+
+These additions extend API v1 in the Studio design document. Existing installs
+keep the applied `20261125040000_add_storefront_images_and_video_previews.sql`
+migration. Profile-picture routes and response fields have been retired. The
+historical table and any existing image bytes remain private in PostgreSQL.
+
+### Read creator inventory
+
+`GET /api/v1/me/studio` requires a Bearer access token. The server derives the
+creator from the session and filters both storefronts and products by that
+owner. Responses use the standard `data` / `requestId` envelope and
+`Cache-Control: no-store`. The fields in `data` are:
+
+- `storefronts`: all storefronts for this creator, in handle order. Each has
+  `storefrontId`, `handle`, `displayName`, nullable `bio` and `storefrontUrl`.
+- `products`: this page of owned products. Each has `productId`, `storefrontId`,
+  nullable `description`, `type` (`id`, `code`, `name`), a `prices` array
+  (`priceId`, `currencyCode`, `amountMinor`), and nullable `videoUrl`,
+  `audioUrl`, and `videoPreviewUrl`. A media URL indicates an uploaded file.
+  Media endpoints still apply their own access rules.
+- `nextCursor`: the opaque continuation token, or null. Products are ordered by
+  product UUID. Repeat the request with `cursor` to advance. `limit` defaults
+  to 20, with an allowed range of 1–50.
+
+For an exact product link, pass `productId` instead of `cursor`. This returns
+one product and the same owned storefront list. A missing or other creator's
+product returns 404 `PRODUCT_NOT_FOUND`. Invalid query values return 400
+`INVALID_QUERY`. Missing or invalid credentials return 401 `UNAUTHENTICATED`.
+
+### Public previews
+
+Product creation also accepts optional multipart `videoPreviewFile` up to
+16 MiB in MP4, WebM, or MOV. The existing required-file rules still apply.
+`GET /api/v1/products/{productId}/media/video-preview` serves the separate
+preview after XAF pricing and completion of any active split. It supports
+single byte ranges. The existing `/media/video` remains owner-only.
+
+### Agreement lifecycle
+
+`GET /api/v1/products/{productId}/splits` requires an owner Bearer token and
+returns the active sheet and its current statuses (`PENDING`, `ACCEPTED`,
+`REJECTED`, `EXPIRED`) or `data: null`. Unowned products return 404.
+
+The existing split POST saves the allocation, creates invitations, and queues
+pending recipients in one idempotent operation. Send `If-None-Match: *` when
+creating the first sheet, or `If-Match: "<splitId>"` when replacing the reviewed
+active version. If another submission changed the active version, the server
+returns 412 `SPLIT_VERSION_CHANGED`. The owner should reload and review the
+current state before retrying. Exact idempotent replays are checked first.
+Calls without either precondition retain the legacy behavior.
+
+Invitation delivery requires an outbox worker. The existing fragment-token
+invite URL and Supabase-confirmed phone requirements remain in effect.
+
+### Public artist directory
+
+`GET /api/v1/artists` lists every storefront, including storefronts without
+products. The storefront is the current public artist record. An account with
+no storefront has no public handle or artist record. The public directory
+provides no popularity ranking.

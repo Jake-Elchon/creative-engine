@@ -1,4 +1,4 @@
-﻿"""Creator storefront writes and the public catalog read."""
+"""Creator storefront writes and the public catalog read."""
 
 import base64
 import binascii
@@ -112,7 +112,10 @@ def get_storefront(
 ):
     after = read_cursor(cursor)
     storefront = db.execute(
-        "select id, handle, display_name, bio from cimfest.storefronts where lower(handle) = lower(%s)",
+        """
+        select id, handle, display_name, bio from cimfest.storefronts
+        where lower(handle) = lower(%s)
+        """,
         (handle,),
     ).fetchone()
     if storefront is None:
@@ -127,6 +130,10 @@ def get_storefront(
                    select 1 from cimfest.product_media m
                    where m.product_id = p.id and m.kind = 'audio'
                ) as has_audio,
+               exists (
+                   select 1 from cimfest.product_media m
+                   where m.product_id = p.id and m.kind = 'video_preview'
+               ) as has_video_preview,
                jsonb_build_object('id', t.id, 'code', t.type, 'name', t.name) as type,
                prices.values as prices, prices.has_xaf
         from cimfest.products p
@@ -155,6 +162,8 @@ def get_storefront(
         products.append({
             "productId": row["id"], "description": row["description"], "type": row["type"],
             "previewUrl": preview_url,
+            "videoPreviewUrl": f"/api/v1/products/{row['id']}/media/video-preview"
+            if row["has_video_preview"] and row["has_xaf"] else None,
             "prices": row["prices"], "displayCurrency": displayCurrency if displayCurrency in currencies else "XAF",
             "checkoutAvailable": row["has_xaf"],
         })

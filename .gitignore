@@ -1,4 +1,5 @@
 documentation/*
+!documentation/KamerPay_Studio_API_Design - Create Account and Log In.docx
 .vscode/
 *__pycache__
 /.env

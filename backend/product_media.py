@@ -10,7 +10,8 @@ from starlette.formparsers import MultiPartException, MultiPartParser
 
 from .api_support import ApiError, Payload
 
-MAX_FILE_BYTES = {"video": 32 * 1024**2, "audio": 8 * 1024**2}
+MAX_FILE_BYTES = {"video": 32 * 1024**2, "audio": 8 * 1024**2, "video_preview": 16 * 1024**2}
+FILE_FIELDS = {"videoFile": "video", "audioFile": "audio", "videoPreviewFile": "video_preview"}
 MAX_MULTIPART_BYTES = sum(MAX_FILE_BYTES.values()) + 64 * 1024
 MAX_METADATA_BYTES = 4096
 
@@ -35,7 +36,7 @@ class ProductCreate(Payload):
 
 
 # The handler parses either JSON or multipart, so declare both formats for
-# Swagger clients. Only multipart carries bytes, under the two file fields.
+# Swagger clients. Only multipart carries media bytes.
 PRODUCT_CREATE_BODY = {
     "requestBody": {
         "required": True,
@@ -50,6 +51,7 @@ PRODUCT_CREATE_BODY = {
                         "description": {"type": "string", "maxLength": 120},
                         "videoFile": {"type": "string", "format": "binary"},
                         "audioFile": {"type": "string", "format": "binary"},
+                        "videoPreviewFile": {"type": "string", "format": "binary"},
                     },
                     "additionalProperties": False,
                 },
@@ -66,7 +68,7 @@ async def bounded_body(request: Request, limit: int):
     async for chunk in request.stream():
         size += len(chunk)
         if size > limit:
-            raise ApiError(413, "UPLOAD_TOO_LARGE", "The product request exceeds the upload limit.")
+            raise ApiError(413, "UPLOAD_TOO_LARGE", "The request exceeds the upload limit.")
         yield chunk
 
 
@@ -84,14 +86,14 @@ async def product_upload(request: Request):
         # after the route finishes, including when validation or SQL fails.
         parser = MultiPartParser(
             request.headers, bounded_body(request, MAX_MULTIPART_BYTES),
-            max_files=2, max_fields=2, max_part_size=MAX_METADATA_BYTES,
+            max_files=len(FILE_FIELDS), max_fields=2, max_part_size=MAX_METADATA_BYTES,
         )
         form = await parser.parse()
         try:
             metadata = {}
             files = {}
             for field, value in form.multi_items():
-                if field in ("videoFile", "audioFile"):
+                if field in FILE_FIELDS:
                     if field in files or not isinstance(value, UploadFile):
                         raise ApiError(422, "INVALID_PRODUCT", f"Supply one file for {field}.")
                     files[field] = value
@@ -132,7 +134,7 @@ def read_media(kind: str, upload: UploadFile) -> tuple[str, bytes]:
     content_type = CONTENT_TYPE_ALIASES.get(content_type, content_type)
     # Some form clients send all files as octet-stream. The suffix provides
     # a candidate type in that case, which the same header check verifies.
-    allowed = CONTENT_TYPES[kind]
+    allowed = CONTENT_TYPES["video" if kind == "video_preview" else kind]
     if content_type in ("", "application/octet-stream"):
         suffix = (upload.filename or "").rpartition(".")[2].lower()
         content_type = allowed.get(suffix, "")

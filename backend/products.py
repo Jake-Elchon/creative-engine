@@ -8,7 +8,7 @@ from pydantic import Field
 from starlette.datastructures import UploadFile
 
 from .api_support import ApiError, Payload, database, path_id, require_user, respond
-from .product_media import PRODUCT_CREATE_BODY, ProductCreate, media_response, product_upload, read_media
+from .product_media import FILE_FIELDS, PRODUCT_CREATE_BODY, ProductCreate, media_response, product_upload, read_media
 
 router = APIRouter(tags=["Product management"])
 
@@ -55,7 +55,7 @@ def create_product(
         raise ApiError(422, "INVALID_PRODUCT", "Unknown product type.")
     # Media-required types accept either file field. Each supplied file still
     # has to pass the format and size checks for its own role.
-    if product_type["requires_media"] and not files:
+    if product_type["requires_media"] and not any(field in files for field in ("videoFile", "audioFile")):
         raise ApiError(422, "INVALID_PRODUCT", "This product type requires videoFile or audioFile.")
 
     # Product metadata and binary uploads share one transaction. If either
@@ -67,10 +67,8 @@ def create_product(
         """,
         (storefront_id, product_type["id"], body.description),
     ).fetchone()
-    for kind in ("video", "audio"):
-        file = files.get(f"{kind}File")
-        if file is None:
-            continue
+    for field, file in files.items():
+        kind = FILE_FIELDS[field]
         content_type, data = read_media(kind, file)
         db.execute(
             """
@@ -88,6 +86,7 @@ def create_product(
         "type": {"id": product_type["id"], "code": product_type["type"], "name": product_type["name"]},
         "videoUrl": str(request.url_for("get_product_video", productId=product["id"])) if "videoFile" in files else None,
         "audioUrl": str(request.url_for("get_product_audio", productId=product["id"])) if "audioFile" in files else None,
+        "videoPreviewUrl": f"/api/v1/products/{product['id']}/media/video-preview" if "videoPreviewFile" in files else None,
     }, 201)
 
 
@@ -116,14 +115,22 @@ def get_product_video(
 
 @router.get("/products/{productId}/media/audio")
 def get_product_audio(productId: str, request: Request, db: Connection = Depends(database)):
-    product_id = path_id(productId, "MEDIA_NOT_FOUND")
-    # Product metadata can appear before pricing. Require an XAF price and a
-    # complete split (if any) before serving the actual audio to the public.
+    return public_product_media(productId, request, db, "audio")
+
+
+@router.get("/products/{productId}/media/video-preview")
+def get_product_video_preview(productId: str, request: Request, db: Connection = Depends(database)):
+    return public_product_media(productId, request, db, "video_preview")
+
+
+def public_product_media(product_id: str, request: Request, db: Connection, kind: str):
+    product_id = path_id(product_id, "MEDIA_NOT_FOUND")
+    # Public previews have the same price and active split requirements.
     row = db.execute(
         """
         select m.content_type, m.file_data
         from cimfest.product_media m
-        where m.product_id = %s and m.kind = 'audio'
+        where m.product_id = %s and m.kind = %s
           and exists (
               select 1 from cimfest.product_prices p
               where p.product_id = m.product_id and p.currency_code = 'XAF'
@@ -133,7 +140,7 @@ def get_product_audio(productId: str, request: Request, db: Connection = Depends
               where s.product_id = m.product_id and s.active and not s.completed
           )
         """,
-        (product_id,),
+        (product_id, kind),
     ).fetchone()
     if row is None:
         raise ApiError(404, "MEDIA_NOT_FOUND", "Media not found.")
