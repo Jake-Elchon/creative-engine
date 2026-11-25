@@ -2,4 +2,6 @@ documentation/*
 .vscode/
 *__pycache__
 /.env
+*.venv
 /.tools/
+/supabase

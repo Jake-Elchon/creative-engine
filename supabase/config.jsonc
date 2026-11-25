@@ -301,30 +301,7 @@
     },
 
     "sms": {
-      // Allow/disallow the phone provider. When false, users can't sign up or sign in with SMS.
-      // To block new signups only, set enable_signup = false under [auth] instead.
-      "enabled": false,
-      // If enabled, users need to confirm their phone number before signing in.
-      "enable_confirmations": false,
-      // Template for sending OTP to users
-      "template": "Your code is {{ .Code }}",
-      // Controls the minimum amount of time that must pass before sending another sms otp.
-      "max_frequency": "5s",
-
-      // Use pre-defined map of phone number to OTP for testing.
-      // Keys are the phone number with country code and without the + prefix.
-      // "test_otp": {
-      //   "14152127777": "123456"
-      // },
-
-      // Configure one of the supported SMS providers: `twilio`, `twilio_verify`, `messagebird`, `textlocal`, `vonage`.
-      "twilio": {
-        "enabled": false,
-        "account_sid": "",
-        "message_service_sid": "",
-        // DO NOT commit your Twilio auth token to git. Use environment variable substitution instead:
-        "auth_token": "env(SUPABASE_AUTH_SMS_TWILIO_AUTH_TOKEN)"
-      }
+      "enabled": false
     },
 
     // Configure logged in session timeouts.
