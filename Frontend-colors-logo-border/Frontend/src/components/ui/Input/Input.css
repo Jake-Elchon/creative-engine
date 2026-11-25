@@ -1,0 +1,87 @@
+.zibi-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.zibi-field__label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.zibi-field__label {
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  color: var(--text-secondary);
+}
+
+.zibi-field__control {
+  position: relative;
+  display: flex;
+  align-items: center;
+  background: rgba(20, 16, 12, 0.8);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  transition:
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard);
+}
+
+.zibi-field__control:focus-within {
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 3px rgba(242, 183, 5, 0.14);
+}
+
+.zibi-field__control--error {
+  border-color: var(--state-error);
+}
+
+.zibi-field__control--error:focus-within {
+  border-color: var(--state-error);
+  box-shadow: 0 0 0 3px rgba(229, 82, 74, 0.18);
+}
+
+.zibi-field__icon {
+  display: flex;
+  align-items: center;
+  padding-left: var(--space-3);
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.zibi-field__input {
+  width: 100%;
+  min-height: 46px;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: 0;
+  color: var(--text-primary);
+  font-size: var(--text-base);
+}
+
+.zibi-field__input:focus {
+  outline: none;
+}
+
+.zibi-field__input::placeholder {
+  color: var(--text-muted);
+}
+
+.zibi-field__suffix {
+  display: flex;
+  align-items: center;
+  padding-right: var(--space-2);
+}
+
+.zibi-field__hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.zibi-field__error {
+  font-size: var(--text-xs);
+  color: var(--state-error);
+}

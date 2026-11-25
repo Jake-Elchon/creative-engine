@@ -1,0 +1,110 @@
+.zibi-storefront-header {
+  position: relative;
+  padding: var(--space-8) 0 var(--space-10);
+  border-bottom: 1px solid var(--border-subtle);
+  overflow: hidden;
+}
+
+.zibi-storefront-header__glow {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 20%, rgba(242, 183, 5, 0.14), transparent 70%),
+    radial-gradient(ellipse 50% 50% at 85% 40%, rgba(30, 142, 90, 0.18), transparent 70%);
+}
+
+.zibi-storefront-banner {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: var(--space-6);
+  align-items: center;
+}
+
+@media (min-width: 768px) {
+  .zibi-storefront-banner {
+    grid-template-columns: 220px 1fr;
+    gap: var(--space-8);
+  }
+}
+
+.zibi-storefront-meta {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.zibi-storefront-url-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.zibi-storefront-url-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-subtle);
+  font-size: var(--text-xs);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+
+.zibi-catalog-section {
+  padding: var(--space-8) 0 var(--space-16);
+}
+
+.zibi-catalog-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin-bottom: var(--space-6);
+}
+
+@media (min-width: 640px) {
+  .zibi-catalog-toolbar {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+  }
+}
+
+.zibi-product-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--space-5);
+}
+
+@media (min-width: 768px) {
+  .zibi-product-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .zibi-product-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.zibi-product-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.zibi-product-card__price-row {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-subtle);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}

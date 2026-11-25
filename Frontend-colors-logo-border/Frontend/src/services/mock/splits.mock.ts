@@ -1,0 +1,48 @@
+import type { SplitInvitationDetail } from '@/types/models';
+
+export const MOCK_SPLIT_INVITATIONS: Record<string, SplitInvitationDetail> = {
+  inv_pending_01: {
+    inviteId: 'inv_pending_01',
+    productTitle: 'Wouri Sunrise (Bonus Track)',
+    creatorDisplayName: 'Manuela Nkono',
+    collaboratorName: 'Kmer Wave',
+    sharePercentage: 25,
+    status: 'PENDING',
+    expiresAt: '2026-12-30T23:59:59Z',
+    requiresPhoneVerification: true,
+    isMockDemo: true,
+  },
+  inv_accepted_02: {
+    inviteId: 'inv_accepted_02',
+    productTitle: 'Yaoundé After Midnight (LP)',
+    creatorDisplayName: 'Kmer Wave',
+    collaboratorName: 'Ndop Sessions',
+    sharePercentage: 15,
+    status: 'ACCEPTED',
+    expiresAt: '2026-12-15T23:59:59Z',
+    requiresPhoneVerification: true,
+    isMockDemo: true,
+  },
+  inv_rejected_03: {
+    inviteId: 'inv_rejected_03',
+    productTitle: 'Coastal Echoes',
+    creatorDisplayName: 'Limbe Horizon',
+    collaboratorName: 'Mbappe Beats',
+    sharePercentage: 10,
+    status: 'REJECTED',
+    expiresAt: '2026-12-10T23:59:59Z',
+    requiresPhoneVerification: true,
+    isMockDemo: true,
+  },
+  inv_expired_04: {
+    inviteId: 'inv_expired_04',
+    productTitle: 'Grassfields Anthology',
+    creatorDisplayName: 'Ndop Sessions',
+    collaboratorName: 'Tchatcho Bikutsi',
+    sharePercentage: 20,
+    status: 'EXPIRED',
+    expiresAt: '2026-10-01T23:59:59Z',
+    requiresPhoneVerification: true,
+    isMockDemo: true,
+  },
+};

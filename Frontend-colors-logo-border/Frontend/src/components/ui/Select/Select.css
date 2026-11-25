@@ -1,0 +1,15 @@
+.zibi-select {
+  min-height: 40px;
+  padding: 0 var(--space-3);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.zibi-select:focus {
+  border-color: var(--color-gold);
+  outline: none;
+}

@@ -1,0 +1,30 @@
+.zibi-footer {
+  border-top: 1px solid var(--border-subtle);
+  background: var(--bg-secondary);
+  padding: var(--space-8) 0;
+  margin-top: auto;
+}
+
+.zibi-footer__inner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+@media (min-width: 768px) {
+  .zibi-footer__inner {
+    flex-direction: row;
+    align-items: center;
+  }
+}
+
+.zibi-footer__meta {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.zibi-footer__wordmark {
+  font-size: 28px;
+}

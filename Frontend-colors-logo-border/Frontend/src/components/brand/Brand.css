@@ -1,0 +1,38 @@
+.zibi-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.zibi-mark {
+  display: block;
+  flex: none;
+  height: auto;
+  color: var(--color-red);
+}
+
+.zibi-wordmark {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.05em;
+  font-family: 'Baloo 2', var(--font-display);
+  font-weight: var(--font-extrabold);
+  font-size: 34px;
+  line-height: 1;
+  color: var(--color-cream);
+}
+
+.zibi-wordmark b {
+  font-weight: var(--font-extrabold);
+}
+
+.zibi-wordmark__i {
+  display: block;
+  height: 0.7em;
+  width: 0.24em;
+}
+
+.zibi-border-strip {
+  display: block;
+  background: var(--color-ink);
+}

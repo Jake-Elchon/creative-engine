@@ -1,0 +1,57 @@
+.zibi-toast-stack {
+  position: fixed;
+  bottom: var(--space-5);
+  right: var(--space-4);
+  left: var(--space-4);
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+@media (min-width: 640px) {
+  .zibi-toast-stack {
+    left: auto;
+    width: 360px;
+  }
+}
+
+.zibi-toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  background: var(--bg-glass-strong);
+  backdrop-filter: var(--blur-glass);
+  border: 1px solid var(--border-default);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-sm);
+  color: var(--text-primary);
+}
+
+.zibi-toast--success {
+  border-color: rgba(30, 142, 90, 0.55);
+}
+
+.zibi-toast--warning {
+  border-color: rgba(242, 183, 5, 0.55);
+}
+
+.zibi-toast--error {
+  border-color: rgba(229, 82, 74, 0.55);
+}
+
+.zibi-toast__close {
+  color: var(--text-muted);
+  padding: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.zibi-toast__close:hover {
+  color: var(--text-primary);
+}

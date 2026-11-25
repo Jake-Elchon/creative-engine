@@ -1,0 +1,109 @@
+.zibi-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  font-family: var(--font-display);
+  font-weight: var(--font-semibold);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  transition:
+    transform var(--duration-fast) var(--ease-out),
+    background-color var(--duration-fast) var(--ease-standard),
+    border-color var(--duration-fast) var(--ease-standard),
+    box-shadow var(--duration-fast) var(--ease-standard),
+    opacity var(--duration-fast) var(--ease-standard);
+  min-height: 42px;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.zibi-btn:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.zibi-btn:disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+}
+
+/* Sizes */
+.zibi-btn--sm {
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  font-size: var(--text-xs);
+}
+
+.zibi-btn--md {
+  min-height: 44px;
+  padding: 0 var(--space-5);
+  font-size: var(--text-sm);
+}
+
+.zibi-btn--lg {
+  min-height: 50px;
+  padding: 0 var(--space-6);
+  font-size: var(--text-base);
+}
+
+/* Variants */
+.zibi-btn--primary {
+  background: linear-gradient(135deg, var(--color-terracotta) 0%, #D9731A 100%);
+  color: var(--color-obsidian);
+  box-shadow: 0 4px 14px rgba(240, 138, 36, 0.25);
+}
+
+.zibi-btn--primary:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--color-terracotta-hover) 0%, var(--color-terracotta) 100%);
+  box-shadow: 0 6px 20px rgba(240, 138, 36, 0.35);
+}
+
+.zibi-btn--gold {
+  background: linear-gradient(135deg, var(--color-gold) 0%, #D49F04 100%);
+  color: var(--text-inverse);
+  box-shadow: 0 4px 14px rgba(242, 183, 5, 0.22);
+}
+
+.zibi-btn--gold:hover:not(:disabled) {
+  background: linear-gradient(135deg, var(--color-gold-hover) 0%, var(--color-gold) 100%);
+}
+
+.zibi-btn--secondary {
+  background: var(--bg-glass);
+  border-color: var(--border-default);
+  color: var(--text-primary);
+}
+
+.zibi-btn--secondary:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+  border-color: var(--border-accent);
+}
+
+.zibi-btn--ghost {
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+.zibi-btn--ghost:hover:not(:disabled) {
+  background: var(--bg-glass-subtle);
+  color: var(--text-primary);
+}
+
+.zibi-btn--full {
+  width: 100%;
+}
+
+.zibi-btn__spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: zibiSpin 0.65s linear infinite;
+}
+
+@keyframes zibiSpin {
+  to {
+    transform: rotate(360deg);
+  }
+}

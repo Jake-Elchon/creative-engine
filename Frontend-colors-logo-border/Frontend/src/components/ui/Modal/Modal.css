@@ -1,0 +1,68 @@
+.zibi-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  background: rgba(14, 11, 8, 0.78);
+  backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+.zibi-modal {
+  width: 100%;
+  max-width: 480px;
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: var(--space-6);
+  position: relative;
+}
+
+@media (max-width: 480px) {
+  .zibi-modal-backdrop {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .zibi-modal {
+    max-width: 100%;
+    max-height: 92vh;
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    padding: var(--space-5) var(--space-4);
+  }
+}
+
+.zibi-modal__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
+}
+
+.zibi-modal__title {
+  font-size: var(--text-xl);
+  color: var(--text-primary);
+}
+
+.zibi-modal__close {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  transition: background-color var(--duration-fast);
+}
+
+.zibi-modal__close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-primary);
+}

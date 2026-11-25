@@ -1,0 +1,24 @@
+.zibi-card {
+  background: linear-gradient(
+    155deg,
+    rgba(24, 30, 27, 0.85) 0%,
+    rgba(14, 18, 16, 0.94) 100%
+  );
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-5);
+  box-shadow: var(--shadow-sm);
+}
+
+.zibi-card--interactive {
+  transition:
+    transform var(--duration-normal) var(--ease-out),
+    border-color var(--duration-normal) var(--ease-standard),
+    box-shadow var(--duration-normal) var(--ease-standard);
+}
+
+.zibi-card--interactive:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-accent);
+  box-shadow: var(--shadow-md), var(--shadow-glow-gold);
+}

@@ -1,0 +1,44 @@
+.zibi-state-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--space-3);
+  padding: var(--space-10) var(--space-6);
+  border-radius: var(--radius-lg);
+  background: var(--bg-glass);
+  border: 1px dashed var(--border-default);
+}
+
+.zibi-state-box__icon {
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-lg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-gold-muted);
+  color: var(--color-gold);
+  border: 1px solid rgba(242, 183, 5, 0.28);
+}
+
+.zibi-state-box__icon--error {
+  background: var(--state-error-bg);
+  color: var(--state-error);
+  border-color: rgba(229, 82, 74, 0.32);
+}
+
+.zibi-state-box__title {
+  font-size: var(--text-xl);
+  color: var(--text-primary);
+}
+
+.zibi-state-box__subtitle {
+  max-width: 44ch;
+  font-size: var(--text-sm);
+  color: var(--text-secondary);
+}
+
+.zibi-state-box__action {
+  margin-top: var(--space-2);
+}
